@@ -1,0 +1,45 @@
+# Disposable local BookStack for end-to-end tests of bsk.
+# Start with test/e2e/up.sh and destroy with test/e2e/down.sh; never point
+# these tests at a real BookStack instance.
+name: bsk-e2e
+
+services:
+  db:
+    image: mariadb:11.8.9
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+      MARIADB_DATABASE: bookstack
+      MARIADB_USER: bookstack
+      MARIADB_PASSWORD: ${BSK_E2E_DB_PASSWORD:?run test/e2e/up.sh}
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  bookstack:
+    image: lscr.io/linuxserver/bookstack:26.09.2
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      APP_URL: http://127.0.0.1:${BSK_E2E_PORT:-6875}
+      APP_KEY: ${BSK_E2E_APP_KEY:?run test/e2e/up.sh}
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USERNAME: bookstack
+      DB_PASSWORD: ${BSK_E2E_DB_PASSWORD:?run test/e2e/up.sh}
+      DB_DATABASE: bookstack
+    volumes:
+      - config:/config
+    ports:
+      - 127.0.0.1:${BSK_E2E_PORT:-6875}:80
+
+volumes:
+  db:
+  config:
