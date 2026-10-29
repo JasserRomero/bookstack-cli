@@ -11,7 +11,7 @@ import (
 var version = "dev"
 
 func main() {
-	if err := cli.NewRootCmd(version).Execute(); err != nil {
-		os.Exit(1)
+	if err := cli.Execute(cli.NewRootCmd(version)); err != nil {
+		os.Exit(cli.ExitCode(err))
 	}
 }

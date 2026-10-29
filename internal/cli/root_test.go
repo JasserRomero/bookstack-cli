@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func run(t *testing.T, version string, args ...string) (stdout, stderr string, err error) {
@@ -56,11 +59,56 @@ func TestRootWithoutArgsShowsHelp(t *testing.T) {
 }
 
 func TestRootUnknownCommandFails(t *testing.T) {
-	_, stderr, err := run(t, "dev", "nope")
-	if err == nil {
-		t.Fatal("expected an error for an unknown command")
+	var out, errOut bytes.Buffer
+	cmd := NewRootCmd("dev")
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"nope"})
+	err := Execute(cmd)
+	if code := ExitCode(err); code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
 	}
-	if !strings.Contains(stderr, `unknown command "nope" for "bsk"`) {
-		t.Errorf("stderr = %q, want unknown command message", stderr)
+	want := `{"error":{"code":"usage","message":"unknown command \"nope\" for \"bsk\""}}` + "\n"
+	if errOut.String() != want {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+	if out.String() != "" {
+		t.Errorf("stdout = %q, want empty", out.String())
+	}
+}
+
+// Error classification must not depend on each command remembering a wrapper:
+// a command added without any wrapper still reports runtime failures as generic
+// errors (exit 1) and bad arguments as usage errors (exit 2).
+func TestExecuteClassifiesCommandsWithoutWrapper(t *testing.T) {
+	newRoot := func(args ...string) (string, error) {
+		var out, errOut bytes.Buffer
+		root := NewRootCmd("dev")
+		root.AddCommand(&cobra.Command{
+			Use:  "boom",
+			Args: cobra.NoArgs,
+			RunE: func(*cobra.Command, []string) error { return errors.New("disk full") },
+		})
+		root.SetOut(&out)
+		root.SetErr(&errOut)
+		root.SetArgs(args)
+		err := Execute(root)
+		return errOut.String(), err
+	}
+
+	stderr, err := newRoot("boom")
+	if code := ExitCode(err); code != 1 {
+		t.Errorf("runtime failure exit code = %d, want 1", code)
+	}
+	if want := `{"error":{"code":"error","message":"disk full"}}` + "\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
+	}
+
+	stderr, err = newRoot("boom", "extra")
+	if code := ExitCode(err); code != 2 {
+		t.Errorf("bad argument exit code = %d, want 2", code)
+	}
+	if want := `{"error":{"code":"usage","message":"unknown command \"extra\" for \"bsk boom\""}}` + "\n"; stderr != want {
+		t.Errorf("stderr = %q, want %q", stderr, want)
 	}
 }
