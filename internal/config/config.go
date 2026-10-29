@@ -263,7 +263,15 @@ func SaveProfile(path, name string, p Profile) error {
 	if err := os.Chmod(dir, dirMode); err != nil {
 		return fmt.Errorf("set config directory permissions: %w", err)
 	}
-	return writeAtomic(path, buf.Bytes())
+	// Write through a symlink (dotfile managers) instead of replacing it;
+	// the link target's directory keeps its own permissions.
+	target := path
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		target = resolved
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("resolve config path: %w", err)
+	}
+	return writeAtomic(target, buf.Bytes())
 }
 
 func writeAtomic(path string, data []byte) (err error) {

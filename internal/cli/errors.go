@@ -45,7 +45,12 @@ func usageErrorf(format string, args ...any) *Error {
 // never has to remember a wrapper: flag and argument errors are usage errors
 // (exit 2), and errors returned by command bodies go through classify.
 func Execute(cmd *cobra.Command) error {
-	classifyTree(cmd.Root())
+	root := cmd.Root()
+	// cobra adds help and completion while executing, after any walk done
+	// here; adding them first lets classifyTree cover them too.
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	classifyTree(root)
 	err := cmd.Execute()
 	if err == nil {
 		return nil

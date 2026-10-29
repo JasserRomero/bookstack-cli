@@ -376,3 +376,87 @@ func assertNoTempFiles(t *testing.T, dir string) {
 		}
 	}
 }
+
+// F2: rewriting a symlinked config file (dotfile managers) must update the
+// link target and keep the symlink, without touching the target directory mode.
+func TestSaveProfileKeepsSymlink(t *testing.T) {
+	path := isolate(t)
+	targetDir := t.TempDir()
+	if err := os.Chmod(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(targetDir, "bookstack.toml")
+	writeFile(t, target, twoProfiles)
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := config.SaveProfile(path, "new", config.Profile{URL: "https://n.example.com", TokenID: "n", TokenSecret: secret}); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is no longer a symlink (mode %v)", path, info.Mode())
+	}
+	f, err := config.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.ProfileNames(); strings.Join(got, ",") != "home,new,work" {
+		t.Errorf("target profiles = %v, want home,new,work", got)
+	}
+	assertMode(t, target, 0o600)
+	assertMode(t, targetDir, 0o755)
+	assertMode(t, filepath.Dir(path), 0o700)
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("unexpected files left in target dir: %v", entries)
+	}
+	assertNoTempFiles(t, filepath.Dir(path))
+}
+
+// F6: default_profile naming an undefined profile is a broken file.
+func TestLoadUndefinedDefaultProfile(t *testing.T) {
+	path := isolate(t)
+	writeFile(t, path, "default_profile = \"gone\"\n\n[profiles.work]\nurl = \"u\"\ntoken_id = \"i\"\ntoken_secret = \""+secret+"\"\n")
+	_, err := config.Load("")
+	var ie *config.InvalidError
+	if !errors.As(err, &ie) {
+		t.Fatalf("err = %v, want InvalidError", err)
+	}
+	if want := `default_profile "gone" is not defined`; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %q, want it to contain %q", err, want)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error leaks the secret: %q", err)
+	}
+}
+
+// F6: several profiles, no default and nothing selected must point the user
+// at --profile and list the available profiles.
+func TestLoadAmbiguousProfileMessage(t *testing.T) {
+	path := isolate(t)
+	writeFile(t, path, strings.Replace(twoProfiles, "default_profile = \"work\"\n", "", 1))
+	_, err := config.Load("")
+	var me *config.MissingError
+	if !errors.As(err, &me) {
+		t.Fatalf("err = %v, want MissingError", err)
+	}
+	want := "missing: url, token_id, token_secret; no profile selected, use --profile or BOOKSTACK_PROFILE (available profiles: home, work)"
+	if err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+}

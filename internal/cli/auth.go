@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/JasserRomero/bookstack-cli/internal/config"
 	"github.com/spf13/cobra"
@@ -25,7 +27,29 @@ var (
 		if !ok {
 			return "", errors.New("stdin is not a terminal")
 		}
-		b, err := term.ReadPassword(int(f.Fd()))
+		fd := int(f.Fd())
+		state, err := term.GetState(fd)
+		if err != nil {
+			return "", err
+		}
+		// ReadPassword turns echo off; restore it if the user interrupts the
+		// prompt, otherwise the shell is left without echo.
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		done := make(chan struct{})
+		defer func() {
+			signal.Stop(sig)
+			close(done)
+		}()
+		go func() {
+			select {
+			case <-sig:
+				_ = term.Restore(fd, state)
+				os.Exit(130)
+			case <-done:
+			}
+		}()
+		b, err := term.ReadPassword(fd)
 		return string(b), err
 	}
 )
