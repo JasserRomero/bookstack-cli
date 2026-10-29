@@ -5,9 +5,18 @@ import "github.com/spf13/cobra"
 
 const rootLong = `bsk is a command-line client for the BookStack API, built for coding agents.
 
-Output is JSON on stdout. Errors are JSON on stderr,
-{"error":{"code":"<code>","message":"..."}}, with a non-zero exit code
-(1 error, 2 usage).
+Output is JSON on stdout ("pages get --raw" prints Markdown). Errors are JSON
+on stderr, {"error":{"code":"<code>","status":<http>,"message":"..."}}, where
+"status" is present only for errors with an HTTP status, and the exit code is:
+  0  ok
+  1  error
+  2  usage (invalid arguments or flags)
+  3  auth: invalid token or missing permission (HTTP 401/403)
+  4  not found (HTTP 404)
+  6  validation (HTTP 422)
+
+Start with "bsk test" to check the configuration, then "bsk search" or
+"bsk books list" / "bsk books get <id>" / "bsk pages get <id>".
 
 Configuration, highest precedence first:
   --profile <name>        use that profile of the config file; connection
@@ -24,7 +33,8 @@ Configuration, highest precedence first:
 Store credentials without putting the secret in shell history:
   printf '%s\n' "$SECRET" | bsk auth --url https://docs.example.com --token-id <id>`
 
-// NewRootCmd builds the bsk root command. version is printed by --version.
+// NewRootCmd builds the bsk root command. version is printed by --version
+// and sent to BookStack in the User-Agent as bsk/<version>.
 func NewRootCmd(version string) *cobra.Command {
 	var profile string
 	root := &cobra.Command{
@@ -44,6 +54,8 @@ func NewRootCmd(version string) *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&profile, "profile", "",
 		"config profile to use (default: $BOOKSTACK_PROFILE, then default_profile)")
-	root.AddCommand(newAuthCmd(&profile), newConfigCmd(&profile))
+	d := apiDeps{profile: &profile, version: version}
+	root.AddCommand(newAuthCmd(&profile), newConfigCmd(&profile), newTestCmd(d), newSearchCmd(d),
+		newShelvesCmd(d), newBooksCmd(d), newChaptersCmd(d), newPagesCmd(d))
 	return root
 }

@@ -57,8 +57,14 @@ type result struct {
 // exec runs bsk with args and stdin through the same path as main.
 func exec(t *testing.T, stdin string, args ...string) result {
 	t.Helper()
+	return execVersion(t, "dev", stdin, args...)
+}
+
+// execVersion is exec with the build version passed to NewRootCmd.
+func execVersion(t *testing.T, version, stdin string, args ...string) result {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	cmd := NewRootCmd("dev")
+	cmd := NewRootCmd(version)
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	cmd.SetIn(strings.NewReader(stdin))

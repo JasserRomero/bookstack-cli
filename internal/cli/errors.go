@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/JasserRomero/bookstack-cli/internal/client"
 	"github.com/JasserRomero/bookstack-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 
 // Exit codes (umbrella S5).
 const (
-	ExitOK    = 0
-	ExitError = 1
-	ExitUsage = 2
+	ExitOK         = 0
+	ExitError      = 1
+	ExitUsage      = 2
+	ExitAuth       = 3
+	ExitNotFound   = 4
+	ExitValidation = 6
 )
 
 // Error codes reported in the JSON error output.
@@ -27,7 +31,9 @@ const (
 
 // Error is a command failure with its JSON error code and process exit code.
 type Error struct {
-	Code    string
+	Code string
+	// Status is the HTTP status of an API error, or 0 when there is none.
+	Status  int
 	Message string
 	Exit    int
 }
@@ -95,10 +101,13 @@ func classify(err error) *Error {
 		unknown *config.UnknownProfileError
 		missing *config.MissingError
 		invalid *config.InvalidError
+		api     *client.APIError
 	)
 	switch {
 	case errors.As(err, &e):
 		return e
+	case errors.As(err, &api):
+		return &Error{Code: api.Code, Status: api.Status, Message: api.Message, Exit: apiExitCode(api.Code)}
 	case errors.As(err, &unknown):
 		return &Error{Code: CodeUsage, Message: err.Error(), Exit: ExitUsage}
 	case errors.As(err, &missing):
@@ -107,6 +116,20 @@ func classify(err error) *Error {
 		return &Error{Code: CodeConfigInvalid, Message: err.Error(), Exit: ExitError}
 	default:
 		return &Error{Code: CodeError, Message: err.Error(), Exit: ExitError}
+	}
+}
+
+// apiExitCode maps a client error code to an exit code (umbrella S5).
+func apiExitCode(code string) int {
+	switch code {
+	case client.CodeAuth:
+		return ExitAuth
+	case client.CodeNotFound:
+		return ExitNotFound
+	case client.CodeValidation:
+		return ExitValidation
+	default:
+		return ExitError
 	}
 }
 
@@ -119,7 +142,7 @@ type errorBody struct {
 func writeError(w io.Writer, e *Error) {
 	_ = writeJSON(w, struct {
 		Error errorBody `json:"error"`
-	}{errorBody{Code: e.Code, Message: e.Message}})
+	}{errorBody{Code: e.Code, Status: e.Status, Message: e.Message}})
 }
 
 // writeJSON writes v as one line of JSON.
