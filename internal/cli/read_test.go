@@ -404,7 +404,9 @@ func TestAPINetworkError(t *testing.T) {
 	t.Setenv("BOOKSTACK_TOKEN_ID", "tid")
 	t.Setenv("BOOKSTACK_TOKEN_SECRET", secret)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	exec(t, "", "test").expect(t, 1, "", errJSON("network", 0, "request failed: dial tcp "+host+": connect: connection refused"))
+	// The reason after the address is OS text ("connect: connection refused"
+	// on Unix, "connectex: ..." on Windows).
+	exec(t, "", "test").expectErrorPrefix(t, 1, "network", "request failed: dial tcp "+host+": ")
 }
 
 // S5: an unusable configured URL is a configuration error, not a crash.

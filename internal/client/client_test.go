@@ -164,7 +164,8 @@ func TestNetworkErrorDoesNotLeakSecret(t *testing.T) {
 	}
 	_, err = c.System(context.Background())
 	apiErr := asAPIError(t, err, CodeNetwork, 0)
-	if !strings.Contains(apiErr.Message, "connection refused") {
+	// The reason after the address is OS text ("connection refused" on Unix).
+	if !strings.Contains(apiErr.Message, "dial tcp "+addr+": ") {
 		t.Errorf("message %q does not report the transport failure", apiErr.Message)
 	}
 	// GET network errors are retried up to 5 attempts.

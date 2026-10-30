@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -83,6 +84,41 @@ func (r result) expect(t *testing.T, code int, stdout, stderr string) {
 	}
 	if r.stderr != stderr {
 		t.Errorf("stderr = %q\nwant     %q", r.stderr, stderr)
+	}
+	if strings.Contains(r.stdout+r.stderr, secret) {
+		t.Errorf("secret leaked in output")
+	}
+}
+
+// expectErrorPrefix checks an error whose message ends with OS-specific text
+// (such as a file or network failure): the exit code, an empty stdout and one
+// JSON error on stderr with the code, no status and a message that starts
+// with prefix and adds a non-empty reason.
+func (r result) expectErrorPrefix(t *testing.T, code int, errCode, prefix string) {
+	t.Helper()
+	if r.code != code {
+		t.Errorf("exit code = %d, want %d", r.code, code)
+	}
+	if r.stdout != "" {
+		t.Errorf("stdout = %q, want empty", r.stdout)
+	}
+	var got struct {
+		Error struct {
+			Code    string `json:"code"`
+			Status  *int   `json:"status"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	dec := json.NewDecoder(strings.NewReader(r.stderr))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&got); err != nil || !strings.HasSuffix(r.stderr, "}}\n") || strings.Count(r.stderr, "\n") != 1 {
+		t.Fatalf("stderr = %q is not one JSON error line (%v)", r.stderr, err)
+	}
+	if got.Error.Code != errCode || got.Error.Status != nil {
+		t.Errorf("error code = %q, status = %v; want %q without status", got.Error.Code, got.Error.Status, errCode)
+	}
+	if !strings.HasPrefix(got.Error.Message, prefix) || len(got.Error.Message) == len(prefix) {
+		t.Errorf("message = %q, want prefix %q and a reason", got.Error.Message, prefix)
 	}
 	if strings.Contains(r.stdout+r.stderr, secret) {
 		t.Errorf("secret leaked in output")

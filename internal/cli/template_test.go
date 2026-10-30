@@ -156,8 +156,9 @@ func TestTemplatesDirInvalid(t *testing.T) {
 	isolate(t)
 	missing := filepath.Join(t.TempDir(), "nope")
 	file := tempFile(t, "x")
-	exec(t, "", "template", "list", "--templates-dir", missing).expect(t, 2, "",
-		errJSON("usage", 0, `invalid --templates-dir \"`+missing+`\": no such file or directory`))
+	// The reason for a missing directory is OS text.
+	exec(t, "", "template", "list", "--templates-dir", missing).expectErrorPrefix(t, 2, "usage",
+		`invalid --templates-dir "`+missing+`": `)
 	exec(t, "", "template", "list", "--templates-dir", file).expect(t, 2, "",
 		errJSON("usage", 0, `invalid --templates-dir \"`+file+`\": not a directory`))
 	exec(t, "", "template", "list", "--templates-dir", "").expect(t, 2, "",

@@ -148,8 +148,6 @@ func TestPagesWriteUsageErrors(t *testing.T) {
 		{"create bad book", "", []string{"pages", "create", "--book", "x", "--name", "N", "--file", md}, `invalid argument \"x\" for \"--book\" flag: must be a positive integer`},
 		{"create args", "", []string{"pages", "create", "7"}, `unknown command \"7\" for \"bsk pages create\"`},
 		{"create empty tag key", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", md, "--tag", "=v"}, `invalid argument \"=v\" for \"--tag\" flag: key must not be empty`},
-		{"create missing file", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", missing}, `invalid --file \"` + missing + `\": cannot read: no such file or directory`},
-		{"create directory", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", dir}, `invalid --file \"` + dir + `\": cannot read: is a directory`},
 		{"create too big", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", big}, `invalid --file \"` + big + `\": larger than 10 MiB`},
 		{"create invalid utf8", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", bad}, `invalid --file \"` + bad + `\": not valid UTF-8`},
 		{"create blank file", "", []string{"pages", "create", "--book", "7", "--name", "N", "--file", blank}, `invalid --file \"` + blank + `\": empty or only whitespace`},
@@ -162,8 +160,6 @@ func TestPagesWriteUsageErrors(t *testing.T) {
 		{"update stdin twice", "x", []string{"pages", "update", "12", "--file", "-", "--append-file", "-"}, `stdin (\"-\") can be read by only one flag; --file and --append-file both use it`},
 		{"update tag key", "", []string{"pages", "update", "12", "--tag", "=v"}, `invalid argument \"=v\" for \"--tag\" flag: key must not be empty`},
 		{"update blank tag key", "", []string{"pages", "update", "12", "--tag", " "}, `invalid argument \" \" for \"--tag\" flag: key must not be empty`},
-		{"update missing file", "", []string{"pages", "update", "12", "--file", missing}, `invalid --file \"` + missing + `\": cannot read: no such file or directory`},
-		{"append missing", "", []string{"pages", "update", "12", "--append-file", missing}, `invalid --append-file \"` + missing + `\": cannot read: no such file or directory`},
 		{"append too big", "", []string{"pages", "update", "12", "--append-file", big}, `invalid --append-file \"` + big + `\": larger than 10 MiB`},
 		{"append invalid utf8", "", []string{"pages", "update", "12", "--append-file", bad}, `invalid --append-file \"` + bad + `\": not valid UTF-8`},
 		{"append blank stdin", " \n", []string{"pages", "update", "12", "--append-file", "-"}, `invalid --append-file \"-\": empty or only whitespace`},
@@ -172,6 +168,22 @@ func TestPagesWriteUsageErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			exec(t, tc.stdin, tc.args...).expect(t, 2, "", errJSON("usage", 0, tc.message))
+		})
+	}
+	// Unreadable files: the reason after "cannot read: " is OS text.
+	unreadable := []struct {
+		name   string
+		args   []string
+		prefix string
+	}{
+		{"create missing file", []string{"pages", "create", "--book", "7", "--name", "N", "--file", missing}, `invalid --file "` + missing + `": cannot read: `},
+		{"create directory", []string{"pages", "create", "--book", "7", "--name", "N", "--file", dir}, `invalid --file "` + dir + `": cannot read: `},
+		{"update missing file", []string{"pages", "update", "12", "--file", missing}, `invalid --file "` + missing + `": cannot read: `},
+		{"append missing", []string{"pages", "update", "12", "--append-file", missing}, `invalid --append-file "` + missing + `": cannot read: `},
+	}
+	for _, tc := range unreadable {
+		t.Run(tc.name, func(t *testing.T) {
+			exec(t, "", tc.args...).expectErrorPrefix(t, 2, "usage", tc.prefix)
 		})
 	}
 	f.expectRequests(t)
