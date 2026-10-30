@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/JasserRomero/bookstack-cli/internal/client"
@@ -223,6 +224,14 @@ func setContent(ctx context.Context, c *client.Client, id int, md string, append
 	}
 	if appendMD {
 		// raw_html keeps includes such as {{@3}}; html has them expanded.
+		// Without it, appending would replace the page with only the new part.
+		if p.RawHTML == "" && strings.TrimSpace(p.HTML) != "" {
+			return &Error{
+				Code:    CodeUnsafeWrite,
+				Message: fmt.Sprintf("page %d has HTML content but BookStack returned no raw_html; refusing to append because it would replace the page. Use --file to replace the content explicitly", id),
+				Exit:    ExitError,
+			}
+		}
 		h = p.RawHTML + h
 	}
 	u.HTML = &h

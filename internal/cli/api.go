@@ -24,7 +24,7 @@ status is present only when BookStack answered with an HTTP status.
 Exit codes:
   0  ok
   1  error (config_missing, config_invalid, rate_limited, server, http_error,
-     network, invalid_response)
+     network, invalid_response, ambiguous, unsafe_write)
   2  usage (invalid arguments or flags; no request is made)
   3  auth: invalid token or missing permission (HTTP 401/403)
   4  not found (HTTP 404)

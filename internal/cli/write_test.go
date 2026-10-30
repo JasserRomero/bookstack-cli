@@ -232,3 +232,17 @@ func TestHelpDocumentsWriteCommands(t *testing.T) {
 		t.Errorf("pages group help:\n%s", r.stdout)
 	}
 }
+
+// W2 (T6 review): appending to a WYSIWYG page whose raw_html is missing while
+// html has content would replace the whole page with only the new part. The
+// command refuses, makes no write, and points at --file.
+func TestPagesUpdateAppendRefusesWithoutRawHTML(t *testing.T) {
+	page := strings.Replace(wysPage, `"raw_html":`, `"ignored_raw_html":`, 1)
+	if page == wysPage {
+		t.Fatal("fixture wysPage has no raw_html field")
+	}
+	f := newFake(t, map[string]reply{"GET /api/pages/5": ok(page)})
+	exec(t, "new part\n", "pages", "update", "5", "--append-file", "-").expect(t, 1, "",
+		errJSON("unsafe_write", 0, "page 5 has HTML content but BookStack returned no raw_html; refusing to append because it would replace the page. Use --file to replace the content explicitly"))
+	f.expectRequests(t, "GET /api/pages/5")
+}
