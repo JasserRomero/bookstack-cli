@@ -4,7 +4,7 @@
 
 **A safe, JSON-first BookStack client for coding agents.**
 
-<a href="https://github.com/JasserRomero/bookstack-cli/releases"><img src="https://img.shields.io/badge/release-v0.1.0-E0115F?style=for-the-badge&labelColor=1A1A1A" alt="Release v0.1.0"></a>
+<a href="https://github.com/JasserRomero/bookstack-cli/releases"><img src="https://img.shields.io/badge/release-v0.1.1-E0115F?style=for-the-badge&labelColor=1A1A1A" alt="Release v0.1.1"></a>
 <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white&labelColor=1A1A1A" alt="Go 1.27"></a>
 <a href="https://www.bookstackapp.com/"><img src="https://img.shields.io/badge/BookStack-REST%20API-0288D1?style=for-the-badge&labelColor=1A1A1A" alt="BookStack REST API"></a>
 
@@ -83,9 +83,9 @@ Environment variables apply to piped one-liners too, for example `... | BSK_VERS
 **Manual download.** Download the archive for your platform and `checksums.txt` from a release, verify, extract, and put `bsk` (`bsk.exe` on Windows) on your `PATH`. Archives are named `bsk_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows):
 
 ```sh
-gh release download v0.1.0 -R JasserRomero/bookstack-cli -p 'bsk_0.1.0_linux_amd64.tar.gz' -p checksums.txt
-grep ' bsk_0.1.0_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
-tar -xzf bsk_0.1.0_linux_amd64.tar.gz bsk
+gh release download v0.1.1 -R JasserRomero/bookstack-cli -p 'bsk_0.1.1_linux_amd64.tar.gz' -p checksums.txt
+grep ' bsk_0.1.1_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
+tar -xzf bsk_0.1.1_linux_amd64.tar.gz bsk
 ```
 
 **With Go** (1.27 or newer). While the repository is private, set `GOPRIVATE` so Go fetches it directly with your Git credentials instead of the public module proxy:
