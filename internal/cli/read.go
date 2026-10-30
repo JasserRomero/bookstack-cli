@@ -314,7 +314,8 @@ filtered locally. The list has no content: use "pages get".` + exitCodesHelp
 			return getPage(cmd.Context(), c, id, raw)
 		})
 	get.Flags().BoolVar(&raw, "raw", false, "print only the Markdown, not JSON")
-	return newGroupCmd("pages", "List and read pages", list, get, newPagesResolveURLCmd(d))
+	return newGroupCmd("pages", "List, read, create and update pages", list, get,
+		newPagesCreateCmd(d), newPagesUpdateCmd(d), newPagesResolveURLCmd(d))
 }
 
 // getPage is the result of "pages get <id>": the page with its Markdown

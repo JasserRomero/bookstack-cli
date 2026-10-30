@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,8 +26,9 @@ type reply struct {
 func ok(body string) reply { return reply{http.StatusOK, body, "application/json"} }
 
 // fakeAPI is an httptest BookStack. Routes are keyed by path, or by
-// "path?query" with the query decoded, which takes precedence. Every request
-// must carry the configured token and User-Agent.
+// "path?query" with the query decoded, which takes precedence; a key prefixed
+// with the method ("PUT /api/pages/5") takes precedence over both. Every
+// request must carry the configured token and User-Agent.
 type fakeAPI struct {
 	t        *testing.T
 	srv      *httptest.Server
@@ -34,8 +36,9 @@ type fakeAPI struct {
 	wantAuth string
 	wantUA   string
 
-	mu   sync.Mutex
-	reqs []string
+	mu     sync.Mutex
+	reqs   []string
+	bodies []string
 }
 
 // newFake starts a fake BookStack and configures bsk to use it through the
@@ -62,8 +65,10 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		key += "?" + query
 	}
+	body, _ := io.ReadAll(r.Body)
 	f.mu.Lock()
 	f.reqs = append(f.reqs, r.Method+" "+key)
+	f.bodies = append(f.bodies, string(body))
 	f.mu.Unlock()
 	if got := r.Header.Get("Authorization"); got != f.wantAuth {
 		f.t.Errorf("Authorization = %q, want %q", got, f.wantAuth)
@@ -71,7 +76,10 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	if got := r.Header.Get("User-Agent"); got != f.wantUA {
 		f.t.Errorf("User-Agent = %q, want %q", got, f.wantUA)
 	}
-	rep, found := f.routes[key]
+	rep, found := f.routes[r.Method+" "+key]
+	if !found {
+		rep, found = f.routes[key]
+	}
 	if !found {
 		rep, found = f.routes[r.URL.Path]
 	}
@@ -95,6 +103,21 @@ func (f *fakeAPI) expectRequests(t *testing.T, want ...string) {
 	got := append([]string{}, f.reqs...)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("requests = %q\nwant       %q", got, want)
+	}
+}
+
+// expectBodies asserts the exact request bodies received, in order; a
+// request without a body is "".
+func (f *fakeAPI) expectBodies(t *testing.T, want ...string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if want == nil {
+		want = []string{}
+	}
+	got := append([]string{}, f.bodies...)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("bodies = %q\nwant     %q", got, want)
 	}
 }
 

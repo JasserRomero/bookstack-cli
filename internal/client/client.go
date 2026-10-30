@@ -176,15 +176,32 @@ func (c *Client) attempt(ctx context.Context, method, target string, body []byte
 
 // getJSON sends a GET and decodes the JSON response into v.
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, v any) error {
-	res, err := c.do(ctx, http.MethodGet, path, query, nil)
+	return c.sendJSON(ctx, http.MethodGet, path, query, nil, v)
+}
+
+// sendJSON sends a request with in (when non-nil) as its JSON body and
+// decodes the JSON response into out.
+func (c *Client) sendJSON(ctx context.Context, method, path string, query url.Values, in, out any) error {
+	var body []byte
+	if in != nil {
+		// HTML content is sent as is, not as \u003c escapes.
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(in); err != nil {
+			return &APIError{Code: CodeHTTPError, Message: c.redact(fmt.Sprintf("encode %s /api/%s body: %v", method, path, err)), Err: err}
+		}
+		body = bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+	}
+	res, err := c.do(ctx, method, path, query, body)
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(res.body, v); err != nil {
+	if err := json.Unmarshal(res.body, out); err != nil {
 		return &APIError{
 			Status:  res.status,
 			Code:    CodeInvalidResponse,
-			Message: c.redact(fmt.Sprintf("invalid JSON response from GET /api/%s: %v", path, err)),
+			Message: c.redact(fmt.Sprintf("invalid JSON response from %s /api/%s: %v", method, path, err)),
 		}
 	}
 	return nil
