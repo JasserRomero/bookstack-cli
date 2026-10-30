@@ -27,6 +27,7 @@ const (
 	CodeUsage         = "usage"
 	CodeConfigMissing = "config_missing"
 	CodeConfigInvalid = "config_invalid"
+	CodeAmbiguous     = "ambiguous"
 )
 
 // Error is a command failure with its JSON error code and process exit code.

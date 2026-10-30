@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"strings"
 
@@ -306,26 +307,32 @@ filtered locally. The list has no content: use "pages get".` + exitCodesHelp
 	get := newGetCmd(pagesGetLong, `  bsk pages get 5
   bsk pages get 5 --raw > page.md`, d,
 		func(cmd *cobra.Command, c *client.Client, id int) (any, error) {
-			if raw {
-				md, err := c.ExportPageMarkdown(cmd.Context(), id)
-				if err != nil {
-					return nil, err
-				}
-				return rawOutput(md), nil
-			}
-			p, err := c.GetPage(cmd.Context(), id)
-			if err != nil {
-				return nil, err
-			}
-			md, err := c.ExportPageMarkdown(cmd.Context(), id)
-			if err != nil {
-				return nil, err
-			}
-			p.HTML, p.RawHTML = "", ""
-			return pageOutput{Page: *p, Markdown: md}, nil
+			return getPage(cmd.Context(), c, id, raw)
 		})
 	get.Flags().BoolVar(&raw, "raw", false, "print only the Markdown, not JSON")
-	return newGroupCmd("pages", "List and read pages", list, get)
+	return newGroupCmd("pages", "List and read pages", list, get, newPagesResolveURLCmd(d))
+}
+
+// getPage is the result of "pages get <id>": the page with its Markdown
+// export, or with raw only the Markdown.
+func getPage(ctx context.Context, c *client.Client, id int, raw bool) (any, error) {
+	if raw {
+		md, err := c.ExportPageMarkdown(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return rawOutput(md), nil
+	}
+	p, err := c.GetPage(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	md, err := c.ExportPageMarkdown(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	p.HTML, p.RawHTML = "", ""
+	return pageOutput{Page: *p, Markdown: md}, nil
 }
 
 // rawOutput is a command result written verbatim instead of as JSON.
