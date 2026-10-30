@@ -287,8 +287,12 @@ owned_by, tags, ...) and markdown, the page exported through
 /api/pages/<id>/export/markdown, which also works for WYSIWYG pages. html and
 raw_html are omitted. updated_at is the server value, unchanged.
 
-With --raw only the Markdown is printed, exactly as exported, with no added
-trailing newline.`
+The export starts with a "# <page name>" heading that BookStack adds; that one
+heading is removed, so the Markdown can be written back without duplicating
+the title.
+
+With --raw only the Markdown is printed, as above, with no added trailing
+newline.`
 
 func newPagesCmd(d apiDeps) *cobra.Command {
 	var book, chapter idFlag
@@ -316,13 +320,6 @@ filtered locally. The list has no content: use "pages get".` + exitCodesHelp
 // getPage is the result of "pages get <id>": the page with its Markdown
 // export, or with raw only the Markdown.
 func getPage(ctx context.Context, c *client.Client, id int, raw bool) (any, error) {
-	if raw {
-		md, err := c.ExportPageMarkdown(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		return rawOutput(md), nil
-	}
 	p, err := c.GetPage(ctx, id)
 	if err != nil {
 		return nil, err
@@ -331,8 +328,31 @@ func getPage(ctx context.Context, c *client.Client, id int, raw bool) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	md = stripExportTitle(md, p.Name)
+	if raw {
+		return rawOutput(md), nil
+	}
 	p.HTML, p.RawHTML = "", ""
 	return pageOutput{Page: *p, Markdown: md}, nil
+}
+
+// stripExportTitle removes the "# <page name>" heading that BookStack's
+// Markdown export prepends to every page, so the content can be written back
+// without duplicating the title. Only that one leading heading is removed.
+func stripExportTitle(md, name string) string {
+	rest, ok := strings.CutPrefix(md, "# "+name)
+	if !ok {
+		return md
+	}
+	switch {
+	case rest == "":
+		return ""
+	case strings.HasPrefix(rest, "\n\n"):
+		return rest[2:]
+	case rest == "\n":
+		return ""
+	}
+	return md
 }
 
 // rawOutput is a command result written verbatim instead of as JSON.

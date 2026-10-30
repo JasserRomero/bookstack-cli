@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -304,22 +306,25 @@ func TestPagesGet(t *testing.T) {
 		"/api/pages/6/export/markdown": {200, "", "application/octet-stream"},
 	})
 	exec(t, "", "pages", "get", "5").expect(t, 0,
-		`{"id":5,"book_id":7,"chapter_id":9,"name":"Deploy","slug":"deploy","editor":"wysiwyg","priority":1,"draft":false,"template":false,"revision_count":2,"created_at":"2026-10-01T10:00:00.000000Z","updated_at":"2026-10-20T08:30:15.000000Z","created_by":`+admin+`,"updated_by":`+admin+`,"owned_by":`+admin+`,"tags":[{"name":"env","value":"prod"}],"markdown":"# Deploy\n\nCómo \"desplegar\""}`+"\n", "")
+		`{"id":5,"book_id":7,"chapter_id":9,"name":"Deploy","slug":"deploy","editor":"wysiwyg","priority":1,"draft":false,"template":false,"revision_count":2,"created_at":"2026-10-01T10:00:00.000000Z","updated_at":"2026-10-20T08:30:15.000000Z","created_by":`+admin+`,"updated_by":`+admin+`,"owned_by":`+admin+`,"tags":[{"name":"env","value":"prod"}],"markdown":"Cómo \"desplegar\""}`+"\n", "")
 	exec(t, "", "pages", "get", "6").expect(t, 0,
 		`{"id":6,"book_id":7,"chapter_id":0,"name":"Blank","slug":"blank","editor":"markdown","priority":0,"draft":false,"template":false,"revision_count":1,"created_by":1,"updated_by":1,"owned_by":1,"markdown":""}`+"\n", "")
 	f.expectRequests(t, "GET /api/pages/5", "GET /api/pages/5/export/markdown", "GET /api/pages/6", "GET /api/pages/6/export/markdown")
 }
 
-// S4: --raw prints the export body byte-for-byte, with no added newline.
+// S4: --raw prints the export body byte-for-byte (minus BookStack's prepended
+// title heading, absent here because it is followed by CRLF), with no added newline.
 func TestPagesGetRaw(t *testing.T) {
 	body := "# Deploy\r\n\nCómo <b>desplegar</b> & \"más\"\n\n"
 	f := newFake(t, map[string]reply{
+		"/api/pages/5":                 ok(pageGetBody),
 		"/api/pages/5/export/markdown": {200, body, "application/octet-stream"},
+		"/api/pages/7":                 ok(strings.Replace(pageGetBody, `"id":5`, `"id":7`, 1)),
 		"/api/pages/7/export/markdown": {200, "no newline", "application/octet-stream"},
 	})
 	exec(t, "", "pages", "get", "5", "--raw").expect(t, 0, body, "")
 	exec(t, "", "pages", "get", "--raw", "7").expect(t, 0, "no newline", "")
-	f.expectRequests(t, "GET /api/pages/5/export/markdown", "GET /api/pages/7/export/markdown")
+	f.expectRequests(t, "GET /api/pages/5", "GET /api/pages/5/export/markdown", "GET /api/pages/7", "GET /api/pages/7/export/markdown")
 }
 
 // S5: API errors map to exit codes and carry the HTTP status when there is one;
@@ -413,5 +418,49 @@ func TestHelpDocumentsReadCommands(t *testing.T) {
 		if r.code != 0 || !strings.Contains(r.stdout, "list") || !strings.Contains(r.stdout, "get") {
 			t.Errorf("%s without subcommand: code %d, stdout:\n%s", group, r.code, r.stdout)
 		}
+	}
+}
+
+// BookStack's Markdown export prepends "# <page name>" to the content. pages get
+// (JSON and --raw) removes exactly that one heading, so what an agent reads can
+// be written back without duplicating the title.
+func TestPagesGetStripsExportTitle(t *testing.T) {
+	page := func(id int, name string) reply {
+		return ok(fmt.Sprintf(`{"id":%d,"book_id":7,"chapter_id":0,"name":%q,"slug":"s","editor":"markdown","priority":0,"draft":false,"template":false,"revision_count":1,"created_by":1,"updated_by":1,"owned_by":1}`, id, name))
+	}
+	export := func(body string) reply { return reply{200, body, "application/octet-stream"} }
+	cases := []struct {
+		name, export, want string
+	}{
+		{"Deploy", "# Deploy\n\nbody", "body"},
+		{"Título", "# Título\n\n# Título\n\nya empieza con el título", "# Título\n\nya empieza con el título"},
+		{"a *b* #c [d] <x> & y", "# a *b* #c [d] <x> & y\n\ncuerpo", "cuerpo"},
+		{"Deploy", "# Deploy", ""},
+		{"Deploy", "# Deploy\n", ""},
+		{"Deploy", "# Other\n\nbody", "# Other\n\nbody"},
+		{"Deploy", "# Deployment\n\nbody", "# Deployment\n\nbody"},
+		{"Deploy", "intro\n\n# Deploy\n\nbody", "intro\n\n# Deploy\n\nbody"},
+		{"Deploy", "", ""},
+	}
+	routes := map[string]reply{}
+	for i, c := range cases {
+		id := 100 + i
+		routes[fmt.Sprintf("/api/pages/%d", id)] = page(id, c.name)
+		routes[fmt.Sprintf("/api/pages/%d/export/markdown", id)] = export(c.export)
+	}
+	newFake(t, routes)
+	for i, c := range cases {
+		id := strconv.Itoa(100 + i)
+		t.Run(id, func(t *testing.T) {
+			r := exec(t, "", "pages", "get", id)
+			var got struct{ Markdown string }
+			if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
+				t.Fatalf("stdout %q: %v (stderr %q)", r.stdout, err, r.stderr)
+			}
+			if got.Markdown != c.want {
+				t.Errorf("markdown = %q, want %q", got.Markdown, c.want)
+			}
+			exec(t, "", "pages", "get", id, "--raw").expect(t, 0, c.want, "")
+		})
 	}
 }

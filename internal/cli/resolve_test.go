@@ -14,13 +14,13 @@ const (
 )
 
 // pageGetOutput is what "pages get 5" prints for pageGetBody.
-const pageGetOutput = `{"id":5,"book_id":7,"chapter_id":9,"name":"Deploy","slug":"deploy","editor":"wysiwyg","priority":1,"draft":false,"template":false,"revision_count":2,"created_at":"2026-10-01T10:00:00.000000Z","updated_at":"2026-10-20T08:30:15.000000Z","created_by":` + admin + `,"updated_by":` + admin + `,"owned_by":` + admin + `,"tags":[{"name":"env","value":"prod"}],"markdown":"# Deploy"}` + "\n"
+const pageGetOutput = `{"id":5,"book_id":7,"chapter_id":9,"name":"Deploy","slug":"deploy","editor":"wysiwyg","priority":1,"draft":false,"template":false,"revision_count":2,"created_at":"2026-10-01T10:00:00.000000Z","updated_at":"2026-10-20T08:30:15.000000Z","created_by":` + admin + `,"updated_by":` + admin + `,"owned_by":` + admin + `,"tags":[{"name":"env","value":"prod"}],"markdown":"Steps"}` + "\n"
 
 func resolveRoutes() map[string]reply {
 	return map[string]reply{
 		deployList:                     ok(list(page12, page5, page6)),
 		"/api/pages/5":                 ok(pageGetBody),
-		"/api/pages/5/export/markdown": {200, "# Deploy", "application/octet-stream"},
+		"/api/pages/5/export/markdown": {200, "# Deploy\n\nSteps", "application/octet-stream"},
 	}
 }
 
@@ -55,8 +55,8 @@ const deployReq = "GET " + deployList
 // S1, S4: --raw prints only the Markdown, like "pages get --raw".
 func TestPagesResolveURLRaw(t *testing.T) {
 	f := newFake(t, resolveRoutes())
-	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/books/ops/page/deploy").expect(t, 0, "# Deploy", "")
-	f.expectRequests(t, deployReq, "GET /api/pages/5/export/markdown")
+	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/books/ops/page/deploy").expect(t, 0, "Steps", "")
+	f.expectRequests(t, deployReq, "GET /api/pages/5", "GET /api/pages/5/export/markdown")
 }
 
 // S1: resolve_url is accepted as base, with its path prefix, a host in any
@@ -86,23 +86,25 @@ func TestPagesResolveURLOnResolveURL(t *testing.T) {
 func TestPagesResolveURLBasePathPrefix(t *testing.T) {
 	f := newFake(t, map[string]reply{
 		"/bookstack" + deployList:                ok(list(page5)),
-		"/bookstack/api/pages/5/export/markdown": {200, "# Deploy", "application/octet-stream"},
+		"/bookstack/api/pages/5":                 ok(pageGetBody),
+		"/bookstack/api/pages/5/export/markdown": {200, "# Deploy\n\nSteps", "application/octet-stream"},
 	})
 	t.Setenv("BOOKSTACK_URL", f.srv.URL+"/bookstack/")
-	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/bookstack/books/ops/page/deploy").expect(t, 0, "# Deploy", "")
+	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/bookstack/books/ops/page/deploy").expect(t, 0, "Steps", "")
 	exec(t, "", "pages", "resolve-url", f.srv.URL+"/books/ops/page/deploy").expect(t, 2, "",
 		errJSON("usage", 0, `url \"`+f.srv.URL+`/books/ops/page/deploy\" is not under the configured url or resolve_url (`+f.srv.URL+`/bookstack)`))
-	f.expectRequests(t, "GET /bookstack"+deployList, "GET /bookstack/api/pages/5/export/markdown")
+	f.expectRequests(t, "GET /bookstack"+deployList, "GET /bookstack/api/pages/5", "GET /bookstack/api/pages/5/export/markdown")
 }
 
 // S1, S2: percent-encoded non-ASCII slugs are decoded and sent as they are.
 func TestPagesResolveURLNonASCII(t *testing.T) {
 	f := newFake(t, map[string]reply{
 		"/api/pages?count=500&filter[slug]=cómo-desplegar&offset=0": ok(list(page20)),
-		"/api/pages/20/export/markdown":                             {200, "# Cómo", "application/octet-stream"},
+		"/api/pages/20":                 ok(page20),
+		"/api/pages/20/export/markdown": {200, "# Cómo desplegar\n\nPaso 1", "application/octet-stream"},
 	})
-	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/books/pol%C3%ADticas-ti/page/c%C3%B3mo-desplegar").expect(t, 0, "# Cómo", "")
-	f.expectRequests(t, "GET /api/pages?count=500&filter[slug]=cómo-desplegar&offset=0", "GET /api/pages/20/export/markdown")
+	exec(t, "", "pages", "resolve-url", "--raw", f.srv.URL+"/books/pol%C3%ADticas-ti/page/c%C3%B3mo-desplegar").expect(t, 0, "Paso 1", "")
+	f.expectRequests(t, "GET /api/pages?count=500&filter[slug]=cómo-desplegar&offset=0", "GET /api/pages/20", "GET /api/pages/20/export/markdown")
 }
 
 // S2, S3: a slug found only in other books, or not at all, is not_found
