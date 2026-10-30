@@ -48,3 +48,41 @@ func (c *Client) UpdatePage(ctx context.Context, id int, u PageUpdate) (*Page, e
 	}
 	return &out, nil
 }
+
+// NewBook is the body of CreateBook. Description is plain text; BookStack
+// escapes it into description_html. Zero values are not sent; nil Tags sets
+// no tags.
+type NewBook struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Tags        []Tag  `json:"tags,omitempty"`
+}
+
+// NewChapter is the body of CreateChapter, like NewBook plus the book the
+// chapter is created in.
+type NewChapter struct {
+	BookID      int    `json:"book_id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Tags        []Tag  `json:"tags,omitempty"`
+}
+
+// CreateBook creates a book (POST /api/books) and returns it. Like every
+// write it is retried only on 429, never on 5xx or network errors.
+func (c *Client) CreateBook(ctx context.Context, b NewBook) (*Book, error) {
+	var out Book
+	if err := c.sendJSON(ctx, http.MethodPost, "books", nil, b, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateChapter creates a chapter (POST /api/chapters) and returns it. Like
+// every write it is retried only on 429, never on 5xx or network errors.
+func (c *Client) CreateChapter(ctx context.Context, ch NewChapter) (*Chapter, error) {
+	var out Chapter
+	if err := c.sendJSON(ctx, http.MethodPost, "chapters", nil, ch, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

@@ -162,3 +162,100 @@ func TestWriteInvalidResponse(t *testing.T) {
 		t.Errorf("Message = %q, want %q", apiErr.Message, want)
 	}
 }
+
+const (
+	writtenBook    = `{"id":7,"name":"Ops","slug":"ops","description":"Run <b>it</b>","description_html":"<p>Run &lt;b&gt;it&lt;/b&gt;</p>","tags":[{"name":"env","value":"prod"}]}`
+	writtenChapter = `{"id":9,"book_id":7,"book_slug":"ops","name":"Runbooks","slug":"runbooks","description":"d","description_html":"<p>d</p>","priority":1}`
+)
+
+// T8 S5: CreateBook posts only the set fields to /api/books.
+func TestCreateBookBodies(t *testing.T) {
+	cases := []struct {
+		name string
+		in   NewBook
+		want string
+	}{
+		{"name only", NewBook{Name: "Ops"}, `POST /api/books {"name":"Ops"}`},
+		{"all fields", NewBook{Name: "Ops", Description: "Run <b>it</b>", Tags: []Tag{{Name: "env", Value: "prod"}, {Name: "draft"}}},
+			`POST /api/books {"name":"Ops","description":"Run <b>it</b>","tags":[{"name":"env","value":"prod"},{"name":"draft","value":""}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			log := &bodyLog{}
+			c, _, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request, n int) {
+				log.add(r)
+				writeJSON(w, 200, writtenBook)
+			})
+			got, err := c.CreateBook(context.Background(), tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := &Book{ID: 7, Name: "Ops", Slug: "ops", Description: "Run <b>it</b>", Tags: []Tag{{Name: "env", Value: "prod"}}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("book = %+v", got)
+			}
+			if reqs := log.got(); !reflect.DeepEqual(reqs, []string{tc.want}) {
+				t.Errorf("requests = %q\nwant       %q", reqs, []string{tc.want})
+			}
+		})
+	}
+}
+
+// T8 S5: CreateChapter posts only the set fields to /api/chapters.
+func TestCreateChapterBodies(t *testing.T) {
+	cases := []struct {
+		name string
+		in   NewChapter
+		want string
+	}{
+		{"name only", NewChapter{BookID: 7, Name: "Runbooks"}, `POST /api/chapters {"book_id":7,"name":"Runbooks"}`},
+		{"all fields", NewChapter{BookID: 7, Name: "Runbooks", Description: "d", Tags: []Tag{{Name: "k", Value: "a=b"}}},
+			`POST /api/chapters {"book_id":7,"name":"Runbooks","description":"d","tags":[{"name":"k","value":"a=b"}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			log := &bodyLog{}
+			c, _, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request, n int) {
+				log.add(r)
+				writeJSON(w, 200, writtenChapter)
+			})
+			got, err := c.CreateChapter(context.Background(), tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := &Chapter{ID: 9, BookID: 7, BookSlug: "ops", Name: "Runbooks", Slug: "runbooks", Description: "d", Priority: 1}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("chapter = %+v", got)
+			}
+			if reqs := log.got(); !reflect.DeepEqual(reqs, []string{tc.want}) {
+				t.Errorf("requests = %q\nwant       %q", reqs, []string{tc.want})
+			}
+		})
+	}
+}
+
+// T8 S5 (T3 S3): book and chapter creates are not retried on 5xx.
+func TestStructureCreatesNotRetried(t *testing.T) {
+	ctx := context.Background()
+	writes := map[string]func(c *Client) error{
+		"book": func(c *Client) error { _, err := c.CreateBook(ctx, NewBook{Name: "N"}); return err },
+		"chapter": func(c *Client) error {
+			_, err := c.CreateChapter(ctx, NewChapter{BookID: 7, Name: "N"})
+			return err
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			c, rec, sl := newTestClient(t, func(w http.ResponseWriter, r *http.Request, n int) {
+				writeJSON(w, 503, `{"error":{"message":"down"}}`)
+			})
+			asAPIError(t, write(c), CodeServer, 503)
+			if got := len(rec.all()); got != 1 {
+				t.Errorf("attempts = %d, want 1", got)
+			}
+			if got := sl.got(); len(got) != 0 {
+				t.Errorf("waits = %v, want none", got)
+			}
+		})
+	}
+}

@@ -237,7 +237,7 @@ with its pages) and the pages outside chapters.`, "  bsk books get 7", d,
 			}
 			return out, nil
 		})
-	return newGroupCmd("books", "List and read books", list, get)
+	return newGroupCmd("books", "List, read and create books", list, get, newBooksCreateCmd(d))
 }
 
 // chapterOutput always reports pages, even when the chapter is empty.
@@ -269,7 +269,7 @@ The filter is applied server-side.` + exitCodesHelp
 			}
 			return out, nil
 		})
-	return newGroupCmd("chapters", "List and read chapters", list, get)
+	return newGroupCmd("chapters", "List, read and create chapters", list, get, newChaptersCreateCmd(d))
 }
 
 // pageOutput is a page with its Markdown export instead of its HTML.

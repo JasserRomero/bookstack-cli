@@ -306,3 +306,112 @@ func pageMetadata(p *client.Page) client.Page {
 	out.HTML, out.RawHTML, out.Markdown = "", "", ""
 	return out
 }
+
+// structureCreateHelp is the part of the books and chapters create help
+// shared by both; %s is how to list the existing ones.
+const structureCreateHelp = `
+
+--description is plain text sent as is: BookStack escapes it into
+description_html, so HTML or Markdown in it is shown literally. Without
+--description or --tag those fields are not sent.
+
+--tag is repeatable, key=value or key (empty value); the key must not be
+empty and the value may contain "=".
+
+BookStack allows duplicate names: running create twice creates two %[1]s,
+the second with a suffix added to its slug. Look up first with
+"%[2]s" and reuse an existing one.
+
+Prints the created %[3]s as JSON without description_html: id, name,
+slug, description, %[4]stags, timestamps and user references.`
+
+const booksCreateLong = `Create a book
+--name is required and must not be blank.` + structureCreateHelp
+
+const chaptersCreateLong = `Create a chapter in a book
+--book is the book id, a positive integer, and --name is required and must
+not be blank. A book that does not exist is reported by BookStack as not
+found (exit 4).` + structureCreateHelp
+
+func newBooksCreateCmd(d apiDeps) *cobra.Command {
+	var (
+		name, description string
+		tags              tagsFlag
+	)
+	long := fmt.Sprintf(booksCreateLong, "books", "bsk books list", "book", "")
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: strings.SplitN(long, "\n", 2)[0],
+		Long:  long + exitCodesHelp,
+		Example: `  bsk books list
+  bsk books create --name "Operations" --description "Runbooks and on-call notes" --tag team=infra`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := requireName(cmd, name); err != nil {
+				return err
+			}
+			c, err := d.client()
+			if err != nil {
+				return err
+			}
+			b, err := c.CreateBook(cmd.Context(), client.NewBook{Name: name, Description: description, Tags: tags})
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), b)
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "book name (required)")
+	cmd.Flags().StringVar(&description, "description", "", "plain-text description")
+	cmd.Flags().Var(&tags, "tag", tagFlagUsage)
+	return cmd
+}
+
+func newChaptersCreateCmd(d apiDeps) *cobra.Command {
+	var (
+		book              idFlag
+		name, description string
+		tags              tagsFlag
+	)
+	long := fmt.Sprintf(chaptersCreateLong, "chapters", "bsk chapters list --book <id>", "chapter", "book_id, book_slug, ")
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: strings.SplitN(long, "\n", 2)[0],
+		Long:  long + exitCodesHelp,
+		Example: `  bsk chapters list --book 7
+  bsk chapters create --book 7 --name "Runbooks" --description "Step-by-step procedures" --tag env=prod`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if book == 0 {
+				return usageErrorf("--book is required")
+			}
+			if err := requireName(cmd, name); err != nil {
+				return err
+			}
+			c, err := d.client()
+			if err != nil {
+				return err
+			}
+			ch, err := c.CreateChapter(cmd.Context(), client.NewChapter{
+				BookID: int(book), Name: name, Description: description, Tags: tags,
+			})
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), ch)
+		},
+	}
+	cmd.Flags().Var(&book, "book", "book id to create the chapter in (required)")
+	cmd.Flags().StringVar(&name, "name", "", "chapter name (required)")
+	cmd.Flags().StringVar(&description, "description", "", "plain-text description")
+	cmd.Flags().Var(&tags, "tag", tagFlagUsage)
+	return cmd
+}
+
+// requireName checks the --name of a create command: given and not blank.
+func requireName(cmd *cobra.Command, name string) error {
+	if !cmd.Flags().Changed("name") {
+		return usageErrorf("--name is required")
+	}
+	return checkName(name)
+}

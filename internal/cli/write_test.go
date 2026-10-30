@@ -374,3 +374,127 @@ func TestHelpDocumentsConcurrencyGuard(t *testing.T) {
 		t.Errorf("shared exit-code help missing exit 5:\n%s", r.stdout)
 	}
 }
+
+// createdBookMeta and createdChapterMeta are create responses as printed, in
+// the CLI field order; the created* replies add the description_html
+// BookStack returns, which the output omits.
+const (
+	createdBookMeta    = `{"id":21,"name":"Ops","slug":"ops-gd3","description":"Run <b>it</b>","created_at":"2026-10-30T10:00:00.000000Z","updated_at":"2026-10-30T10:00:00.000000Z","created_by":1,"updated_by":1,"owned_by":1,"tags":[{"name":"env","value":"prod"}]}`
+	createdChapterMeta = `{"id":31,"book_id":7,"book_slug":"ops","name":"Runbooks","slug":"runbooks","description":"Run <b>it</b>","priority":2,"created_at":"2026-10-30T10:00:00.000000Z","updated_at":"2026-10-30T10:00:00.000000Z","created_by":1,"updated_by":1,"owned_by":1,"tags":[{"name":"env","value":"prod"}]}`
+)
+
+var (
+	createdBook    = strings.Replace(createdBookMeta, `,"created_at":`, `,"description_html":"<p>Run &lt;b&gt;it&lt;/b&gt;</p>","created_at":`, 1)
+	createdChapter = strings.Replace(createdChapterMeta, `,"priority":`, `,"description_html":"<p>Run &lt;b&gt;it&lt;/b&gt;</p>","priority":`, 1)
+)
+
+// T8 S2-S4: books create sends name, plain description and tags only when
+// given and prints the book without description_html.
+func TestBooksCreate(t *testing.T) {
+	if createdBook == createdBookMeta {
+		t.Fatal("fixture createdBook was not built")
+	}
+	f := newFake(t, map[string]reply{"POST /api/books": ok(createdBook)})
+	exec(t, "", "books", "create", "--name", "Ops", "--description", "Run <b>it</b>", "--tag", "env=prod", "--tag", "draft", "--tag", "k=a=b").
+		expect(t, 0, createdBookMeta+"\n", "")
+	exec(t, "", "books", "create", "--name", "Ops").expect(t, 0, createdBookMeta+"\n", "")
+	f.expectRequests(t, "POST /api/books", "POST /api/books")
+	f.expectBodies(t,
+		`{"name":"Ops","description":"Run <b>it</b>","tags":[{"name":"env","value":"prod"},{"name":"draft","value":""},{"name":"k","value":"a=b"}]}`,
+		`{"name":"Ops"}`)
+}
+
+// T8 S1, S3, S4: chapters create sends the book, name, plain description and
+// tags only when given and prints the chapter without description_html.
+func TestChaptersCreate(t *testing.T) {
+	if createdChapter == createdChapterMeta {
+		t.Fatal("fixture createdChapter was not built")
+	}
+	f := newFake(t, map[string]reply{"POST /api/chapters": ok(createdChapter)})
+	exec(t, "", "chapters", "create", "--book", "7", "--name", "Runbooks", "--description", "Run <b>it</b>", "--tag", "env=prod", "--tag", "draft").
+		expect(t, 0, createdChapterMeta+"\n", "")
+	exec(t, "", "chapters", "create", "--name", "Runbooks", "--book", "7").expect(t, 0, createdChapterMeta+"\n", "")
+	f.expectRequests(t, "POST /api/chapters", "POST /api/chapters")
+	f.expectBodies(t,
+		`{"book_id":7,"name":"Runbooks","description":"Run <b>it</b>","tags":[{"name":"env","value":"prod"},{"name":"draft","value":""}]}`,
+		`{"book_id":7,"name":"Runbooks"}`)
+}
+
+// T8 S3: invalid input is a usage error and no request is made.
+func TestStructureCreateUsageErrors(t *testing.T) {
+	f := newFake(t, nil)
+	cases := []struct {
+		name    string
+		args    []string
+		message string
+	}{
+		{"book no name", []string{"books", "create"}, `--name is required`},
+		{"book no name with description", []string{"books", "create", "--description", "d"}, `--name is required`},
+		{"book blank name", []string{"books", "create", "--name", " \t"}, `invalid --name: must not be blank`},
+		{"book empty name", []string{"books", "create", "--name", ""}, `invalid --name: must not be blank`},
+		{"book args", []string{"books", "create", "--name", "N", "extra"}, `unknown command \"extra\" for \"bsk books create\"`},
+		{"book empty tag key", []string{"books", "create", "--name", "N", "--tag", "=v"}, `invalid argument \"=v\" for \"--tag\" flag: key must not be empty`},
+		{"chapter no book", []string{"chapters", "create", "--name", "N"}, `--book is required`},
+		{"chapter bad book", []string{"chapters", "create", "--book", "x", "--name", "N"}, `invalid argument \"x\" for \"--book\" flag: must be a positive integer`},
+		{"chapter zero book", []string{"chapters", "create", "--book", "0", "--name", "N"}, `invalid argument \"0\" for \"--book\" flag: must be a positive integer`},
+		{"chapter negative book", []string{"chapters", "create", "--book", "-3", "--name", "N"}, `invalid argument \"-3\" for \"--book\" flag: must be a positive integer`},
+		{"chapter no name", []string{"chapters", "create", "--book", "7"}, `--name is required`},
+		{"chapter blank name", []string{"chapters", "create", "--book", "7", "--name", "  "}, `invalid --name: must not be blank`},
+		{"chapter args", []string{"chapters", "create", "7"}, `unknown command \"7\" for \"bsk chapters create\"`},
+		{"chapter blank tag key", []string{"chapters", "create", "--book", "7", "--name", "N", "--tag", " "}, `invalid argument \" \" for \"--tag\" flag: key must not be empty`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exec(t, "", tc.args...).expect(t, 2, "", errJSON("usage", 0, tc.message))
+		})
+	}
+	f.expectRequests(t)
+}
+
+// T8 S3, S5: a missing book is not_found (exit 4) from the API; a 422 is a
+// validation error (exit 6); a 5xx create is not retried.
+func TestStructureCreateAPIErrors(t *testing.T) {
+	f := newFake(t, map[string]reply{
+		"POST /api/chapters": {404, `{"error":{"code":404,"message":"Book not found"}}`, "application/json"},
+		"POST /api/books":    {422, `{"error":{"code":422,"message":"The given data was invalid.","validation":{"name":["The name may not be greater than 255 characters."]}}}`, "application/json"},
+	})
+	exec(t, "", "chapters", "create", "--book", "999", "--name", "N").expect(t, 4, "", errJSON("not_found", 404, "Book not found"))
+	exec(t, "", "books", "create", "--name", "N").expect(t, 6, "",
+		errJSON("validation", 422, "The given data was invalid. name: The name may not be greater than 255 characters."))
+	f.expectRequests(t, "POST /api/chapters", "POST /api/books")
+
+	f = newFake(t, map[string]reply{
+		"POST /api/chapters": {422, `{"error":{"code":422,"message":"The given data was invalid.","validation":{"name":["The name field is required."]}}}`, "application/json"},
+		"POST /api/books":    {503, `{"error":{"code":503,"message":"down"}}`, "application/json"},
+	})
+	exec(t, "", "chapters", "create", "--book", "7", "--name", "N").expect(t, 6, "",
+		errJSON("validation", 422, "The given data was invalid. name: The name field is required."))
+	exec(t, "", "books", "create", "--name", "N").expect(t, 1, "", errJSON("server", 503, "down"))
+	f.expectRequests(t, "POST /api/chapters", "POST /api/books")
+}
+
+// T8 S3, S4: the create help documents the flags, plain descriptions,
+// duplicates, looking up first and the exit codes; the groups list create.
+func TestHelpDocumentsStructureCreate(t *testing.T) {
+	isolate(t)
+	common := []string{"--name", "--description", "--tag", "key=value", "plain text", "description_html",
+		"duplicate", "twice", "suffix", "Exit codes:", "2  usage", "4  not found", "6  validation"}
+	helps := map[string][]string{
+		"books create":    {"bsk books list"},
+		"chapters create": {"--book", "bsk chapters list --book"},
+	}
+	for name, wants := range helps {
+		r := exec(t, "", append(strings.Fields(name), "--help")...)
+		for _, want := range append(wants, common...) {
+			if !strings.Contains(r.stdout, want) {
+				t.Errorf("%s help missing %q:\n%s", name, want, r.stdout)
+			}
+		}
+	}
+	for _, group := range []string{"books", "chapters"} {
+		r := exec(t, "", group)
+		if r.code != 0 || !strings.Contains(r.stdout, "create") {
+			t.Errorf("%s group help: code %d\n%s", group, r.code, r.stdout)
+		}
+	}
+}
