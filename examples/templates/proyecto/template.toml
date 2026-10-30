@@ -1,0 +1,31 @@
+# Libro de proyecto según la convención del equipo: una "Ficha del documento"
+# y un capítulo "Historial y control de cambios".
+# Uso: bsk template apply proyecto --var proyecto=IRIS [--dry-run]
+description = "Libro de proyecto con ficha del documento e historial y control de cambios"
+vars = ["proyecto"]
+
+[book]
+name = "Proyecto {{.proyecto}}"
+description = "Documentación del proyecto {{.proyecto}}."
+tags = { tipo = "proyecto", proyecto = "{{.proyecto}}" }
+
+[[book.pages]]
+name = "Ficha del documento"
+file = "ficha.md"
+tags = { tipo = "ficha" }
+
+[[book.chapters]]
+name = "Historial y control de cambios"
+description = "Cambios, incidencias y mejoras pendientes del proyecto {{.proyecto}}."
+
+[[book.chapters.pages]]
+name = "Changelog"
+file = "changelog.md"
+
+[[book.chapters.pages]]
+name = "Registro de incidencias y soluciones"
+file = "incidencias.md"
+
+[[book.chapters.pages]]
+name = "Lista de mejoras pendientes y backlog"
+file = "backlog.md"

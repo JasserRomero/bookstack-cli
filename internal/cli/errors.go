@@ -8,6 +8,7 @@ import (
 
 	"github.com/JasserRomero/bookstack-cli/internal/client"
 	"github.com/JasserRomero/bookstack-cli/internal/config"
+	"github.com/JasserRomero/bookstack-cli/internal/template"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,9 @@ const (
 	CodeAmbiguous     = "ambiguous"
 	CodeUnsafeWrite   = "unsafe_write"
 	CodeConflict      = "conflict"
+	// CodeTemplateInvalid reports a template that fails validation or
+	// rendering.
+	CodeTemplateInvalid = "template_invalid"
 )
 
 // Error is a command failure with its JSON error code and process exit code.
@@ -106,14 +110,20 @@ func classify(err error) *Error {
 		missing *config.MissingError
 		invalid *config.InvalidError
 		api     *client.APIError
+		tplErr  *template.InvalidError
+		varsErr *template.VarsError
+		noTpl   *template.NotFoundError
+		tplName *template.NameError
 	)
 	switch {
 	case errors.As(err, &e):
 		return e
 	case errors.As(err, &api):
 		return &Error{Code: api.Code, Status: api.Status, Message: api.Message, Exit: apiExitCode(api.Code)}
-	case errors.As(err, &unknown):
+	case errors.As(err, &unknown), errors.As(err, &varsErr), errors.As(err, &noTpl), errors.As(err, &tplName):
 		return &Error{Code: CodeUsage, Message: err.Error(), Exit: ExitUsage}
+	case errors.As(err, &tplErr):
+		return &Error{Code: CodeTemplateInvalid, Message: err.Error(), Exit: ExitError}
 	case errors.As(err, &missing):
 		return &Error{Code: CodeConfigMissing, Message: err.Error(), Exit: ExitError}
 	case errors.As(err, &invalid):

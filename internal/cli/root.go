@@ -56,6 +56,6 @@ func NewRootCmd(version string) *cobra.Command {
 		"config profile to use (default: $BOOKSTACK_PROFILE, then default_profile)")
 	d := apiDeps{profile: &profile, version: version}
 	root.AddCommand(newAuthCmd(&profile), newConfigCmd(&profile), newTestCmd(d), newSearchCmd(d),
-		newShelvesCmd(d), newBooksCmd(d), newChaptersCmd(d), newPagesCmd(d))
+		newShelvesCmd(d), newBooksCmd(d), newChaptersCmd(d), newPagesCmd(d), newTemplateCmd(d))
 	return root
 }

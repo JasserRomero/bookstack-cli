@@ -178,21 +178,9 @@ func Load(profile string) (*Config, error) {
 	}
 
 	explicit := profile != ""
-	name := profile
-	if name == "" {
-		name = os.Getenv(EnvProfile)
-	}
-	if name != "" {
-		if _, ok := f.Profiles[name]; !ok {
-			return nil, &UnknownProfileError{Name: name, Available: f.ProfileNames()}
-		}
-	} else if f.DefaultProfile != "" {
-		if _, ok := f.Profiles[f.DefaultProfile]; !ok {
-			return nil, &InvalidError{Path: path, Reason: fmt.Sprintf("default_profile %q is not defined", f.DefaultProfile)}
-		}
-		name = f.DefaultProfile
-	} else if len(f.Profiles) == 1 {
-		name = f.ProfileNames()[0]
+	name, err := SelectProfile(path, f, profile)
+	if err != nil {
+		return nil, err
 	}
 
 	p := f.Profiles[name]
@@ -237,6 +225,30 @@ func Load(profile string) (*Config, error) {
 	}
 	cfg.ResolveURL = NormalizeURL(cfg.ResolveURL)
 	return cfg, nil
+}
+
+// SelectProfile returns the profile of f that a command uses: flag, else
+// $BOOKSTACK_PROFILE, else default_profile, else the only profile, else "" (no
+// profile). path is used in error messages.
+func SelectProfile(path string, f *File, flag string) (string, error) {
+	name := flag
+	if name == "" {
+		name = os.Getenv(EnvProfile)
+	}
+	switch {
+	case name != "":
+		if _, ok := f.Profiles[name]; !ok {
+			return "", &UnknownProfileError{Name: name, Available: f.ProfileNames()}
+		}
+	case f.DefaultProfile != "":
+		if _, ok := f.Profiles[f.DefaultProfile]; !ok {
+			return "", &InvalidError{Path: path, Reason: fmt.Sprintf("default_profile %q is not defined", f.DefaultProfile)}
+		}
+		name = f.DefaultProfile
+	case len(f.Profiles) == 1:
+		name = f.ProfileNames()[0]
+	}
+	return name, nil
 }
 
 // SaveProfile writes profile p as name into the file at path. The write is

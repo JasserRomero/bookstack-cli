@@ -39,6 +39,9 @@ type fakeAPI struct {
 	mu     sync.Mutex
 	reqs   []string
 	bodies []string
+	// seq holds successive replies for a "METHOD path" key, consumed in
+	// order before routes is consulted.
+	seq map[string][]reply
 }
 
 // newFake starts a fake BookStack and configures bsk to use it through the
@@ -69,6 +72,12 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.reqs = append(f.reqs, r.Method+" "+key)
 	f.bodies = append(f.bodies, string(body))
+	queued := f.seq[r.Method+" "+key]
+	var rep reply
+	found := len(queued) > 0
+	if found {
+		rep, f.seq[r.Method+" "+key] = queued[0], queued[1:]
+	}
 	f.mu.Unlock()
 	if got := r.Header.Get("Authorization"); got != f.wantAuth {
 		f.t.Errorf("Authorization = %q, want %q", got, f.wantAuth)
@@ -76,7 +85,9 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	if got := r.Header.Get("User-Agent"); got != f.wantUA {
 		f.t.Errorf("User-Agent = %q, want %q", got, f.wantUA)
 	}
-	rep, found := f.routes[r.Method+" "+key]
+	if !found {
+		rep, found = f.routes[r.Method+" "+key]
+	}
 	if !found {
 		rep, found = f.routes[key]
 	}
