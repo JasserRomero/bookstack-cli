@@ -1,4 +1,14 @@
+<div align="center">
+
 # bookstack-cli (`bsk`)
+
+**A safe, JSON-first BookStack client for coding agents.**
+
+<a href="https://github.com/JasserRomero/bookstack-cli/releases"><img src="https://img.shields.io/badge/release-v0.1.0-E0115F?style=for-the-badge&labelColor=1A1A1A" alt="Release v0.1.0"></a>
+<a href="go.mod"><img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white&labelColor=1A1A1A" alt="Go 1.27"></a>
+<a href="https://www.bookstackapp.com/"><img src="https://img.shields.io/badge/BookStack-REST%20API-0288D1?style=for-the-badge&labelColor=1A1A1A" alt="BookStack REST API"></a>
+
+</div>
 
 `bsk` is a command-line client for the [BookStack](https://www.bookstackapp.com/) REST API, built for coding agents. It can search, read, create and update shelves, books, chapters and pages without overwriting other people's work.
 
@@ -7,19 +17,120 @@
 - Named profiles for several BookStack instances, and file-based templates for company conventions.
 - It only uses the API (`/api/*`) and never modifies BookStack itself. There is no delete command in v1.
 
-An agent-facing reference is in [`skill/SKILL.md`](skill/SKILL.md).
+**For agents:** an agent-facing reference (commands, output shapes, write rules) is in [`skill/SKILL.md`](skill/SKILL.md).
+
+## Contents
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Set up a BookStack API token](#set-up-a-bookstack-api-token)
+- [Configure](#configure)
+- [Commands](#commands)
+- [Write safety](#write-safety)
+- [Templates](#templates)
+- [Development](#development)
+- [Known limits](#known-limits)
+- [Built with Gentle-AI](#-built-with-gentle-ai)
 
 ## Install
 
-With Go (1.27 or newer):
+Binaries are published for Linux, macOS and Windows (amd64/arm64) on the [GitHub releases](https://github.com/JasserRomero/bookstack-cli/releases) of the repository, one release per version tag. The installers pick the right one for your machine.
+
+### Installer (recommended)
+
+The repository is currently private, so the installer is fetched with the [GitHub CLI](https://cli.github.com/) (`gh auth login` first):
 
 ```sh
-go install github.com/JasserRomero/bookstack-cli/cmd/bsk@latest
+# Linux / macOS
+gh api repos/JasserRomero/bookstack-cli/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
 ```
 
-Or download a binary for Linux, macOS or Windows (amd64/arm64) from the [GitHub releases](https://github.com/JasserRomero/bookstack-cli/releases) of the repository, published for each version tag, and put `bsk` on your `PATH`.
+```powershell
+# Windows (PowerShell 5.1+ or 7)
+gh api repos/JasserRomero/bookstack-cli/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
+```
 
-Check it with `bsk --version`.
+Once the repository is public, no GitHub CLI is needed:
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.ps1 | iex
+```
+
+What the installers do:
+
+- **Download**, in this order: with `gh` if it is installed and authenticated; else through the GitHub API with `GITHUB_TOKEN` or `GH_TOKEN` if set; else anonymously over HTTPS (works only while the repository is public). On a private repository without `gh` or a token they fail and explain both options. The token is never printed.
+- **Verify** the archive against the release's `checksums.txt` (SHA-256) and refuse to install on a mismatch or a missing entry.
+- **Install** `bsk` without sudo, replacing an existing binary atomically, then print `bsk --version`:
+
+| | Linux / macOS (`install.sh`) | Windows (`install.ps1`) |
+|---|---|---|
+| Default directory | `$HOME/.local/bin` | `$env:LOCALAPPDATA\Programs\bsk` |
+| Other directory | `BSK_INSTALL_DIR` | `-InstallDir` or `BSK_INSTALL_DIR` |
+| Pin a version | `BSK_VERSION=v0.1.0` (or `0.1.0`); default: latest release | `-Version v0.1.0` or `BSK_VERSION` |
+| `PATH` | prints the `export PATH=...` line to add when the directory is not in `PATH` | adds the directory to the user `PATH` (not the machine's) if missing; restart the terminal |
+| Uninstall | `--uninstall` | `-Uninstall` |
+
+Environment variables apply to piped one-liners too, for example `... | BSK_VERSION=v0.1.0 sh`, or `$env:BSK_VERSION = 'v0.1.0'` before the PowerShell line. Releases after v0.1.0 also attach `install.sh` and `install.ps1`, so a pinned installer matches its version.
+
+### Alternatives
+
+**Manual download.** Download the archive for your platform and `checksums.txt` from a release, verify, extract, and put `bsk` (`bsk.exe` on Windows) on your `PATH`. Archives are named `bsk_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows):
+
+```sh
+gh release download v0.1.0 -R JasserRomero/bookstack-cli -p 'bsk_0.1.0_linux_amd64.tar.gz' -p checksums.txt
+grep ' bsk_0.1.0_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
+tar -xzf bsk_0.1.0_linux_amd64.tar.gz bsk
+```
+
+**With Go** (1.27 or newer). While the repository is private, set `GOPRIVATE` so Go fetches it directly with your Git credentials instead of the public module proxy:
+
+```sh
+GOPRIVATE=github.com/JasserRomero go install github.com/JasserRomero/bookstack-cli/cmd/bsk@latest
+```
+
+A `go install` build reports its version as `dev`.
+
+**From source.** `make build` writes `bin/bsk`, versioned from `git describe` (see [Development](#development)).
+
+Check any of them with `bsk --version`.
+
+### Update and uninstall
+
+| Installed with | Update | Uninstall |
+|---|---|---|
+| `install.sh` | run the one-liner again (or with `BSK_VERSION` to pin) | the one-liner with `sh -s -- --uninstall` instead of `sh` (below) |
+| `install.ps1` | run the one-liner again (or with `$env:BSK_VERSION`) | the script with `-Uninstall` (below) |
+| `go install` | run `go install ...@latest` again | delete `bsk` from `$(go env GOPATH)/bin` (or `GOBIN`) |
+| Manual / `make build` | replace the binary | delete the binary |
+
+```sh
+# Linux / macOS (public: curl -fsSL <install.sh URL> | sh -s -- --uninstall)
+gh api repos/JasserRomero/bookstack-cli/contents/install.sh -H "Accept: application/vnd.github.raw" | sh -s -- --uninstall
+```
+
+```powershell
+# Windows (public: replace the gh api command with irm <install.ps1 URL>)
+& ([scriptblock]::Create((gh api repos/JasserRomero/bookstack-cli/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String))) -Uninstall
+```
+
+Uninstalling removes only the binary. The configuration directory (default `~/.config/bookstack-cli/`), which holds the credentials, is kept; the installers print where it is so you can delete it yourself.
+
+## Quick start
+
+```sh
+bsk auth                                   # store URL, token ID and secret (prompts; the secret is hidden)
+bsk test                                   # check URL, token and API permission
+bsk search "backup policy" --type page --count 5
+bsk pages get 5 --raw > page.md            # read a page as Markdown
+```
+
+You need a BookStack API token first (next section). Every command has detailed `--help`.
 
 ## Set up a BookStack API token
 
@@ -201,6 +312,14 @@ test/e2e/down.sh             # destroy the sandbox, its volumes and secrets
 
 The port defaults to `6875` (`BSK_E2E_PORT` to change it).
 
+Installer tests live under `test/install/`.
+
+### Release
+
+1. Tag the commit `vX.Y.Z` and push the tag (`git tag vX.Y.Z && git push origin vX.Y.Z`).
+2. The Release workflow runs `make lint` and `make test`, then GoReleaser builds the six archives (Linux, macOS, Windows × amd64, arm64) and `checksums.txt`, and attaches `install.sh` and `install.ps1` to the GitHub release.
+3. Update the release badge at the top of this README to the new version (it is static while the repository is private).
+
 ## Known limits
 
 - Rewriting the config file (`bsk auth`) drops TOML comments and unknown keys.
@@ -208,3 +327,21 @@ The port defaults to `6875` (`BSK_E2E_PORT` to change it).
 - `--if-unmodified-since` is not atomic (see [Write safety](#write-safety)).
 - `template apply` does not roll back on partial failure, and templates cannot assign a book to a shelf.
 - Out of scope in v1: delete, attachments, images, users and roles, move/copy.
+
+---
+
+## 🌹 Built with Gentle-AI
+
+`bookstack-cli` was crafted and engineered with the **[Gentle-AI](https://github.com/Gentleman-Programming/gentle-ai)** ecosystem—powered by Organic Driven Development (ODD), persistent Engram context, and strict verification discipline.
+
+<p align="center">
+  <a href="https://github.com/Gentleman-Programming/gentle-ai">
+    <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
+  </a>
+</p>
+
+---
+
+<p align="center">
+  <sub>Crafted by <a href="https://github.com/JasserRomero">JasserRomero</a>.</sub>
+</p>
