@@ -130,3 +130,17 @@ func TestExecuteClassifiesInjectedCommands(t *testing.T) {
 		t.Errorf("stderr = %q, want %q", errOut.String(), want)
 	}
 }
+
+// The root help lists every exit code a command can return, like the
+// subcommand helps do.
+func TestRootHelpListsAllExitCodes(t *testing.T) {
+	stdout, _, err := run(t, "dev", "--help")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"0  ok", "1  error", "2  usage", "3  auth", "4  not found", "5  conflict", "6  validation"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("root help missing %q", want)
+		}
+	}
+}
