@@ -246,3 +246,131 @@ func TestPagesUpdateAppendRefusesWithoutRawHTML(t *testing.T) {
 		errJSON("unsafe_write", 0, "page 5 has HTML content but BookStack returned no raw_html; refusing to append because it would replace the page. Use --file to replace the content explicitly"))
 	f.expectRequests(t, "GET /api/pages/5")
 }
+
+// guardedPage is mdPage as BookStack returns it from GET /api/pages/<id>:
+// with updated_at and updated_by as an object.
+var guardedPage = strings.Replace(mdPage, `"updated_by":1,`, `"updated_at":"2026-10-20T08:30:15.000000Z","updated_by":{"id":3,"name":"Ana","slug":"ana"},`, 1)
+
+// T7 S1, S2, S5: a value naming the same instant as the page's updated_at, in
+// any RFC 3339 format, proceeds: one GET shared with the content logic, then
+// the same PUT as without the guard.
+func TestPagesUpdateGuardSameInstantProceeds(t *testing.T) {
+	if guardedPage == mdPage {
+		t.Fatal("fixture guardedPage was not built")
+	}
+	f := newFake(t, map[string]reply{"GET /api/pages/6": ok(guardedPage), "PUT /api/pages/6": ok(written)})
+	file := tempFile(t, "new part\n")
+	exec(t, "", "pages", "update", "6", "--name", "N", "--if-unmodified-since", "2026-10-20T08:30:15.000000Z").expect(t, 0, writtenMeta+"\n", "")
+	exec(t, "", "pages", "update", "6", "--if-unmodified-since", "2026-10-20T08:30:15Z", "--tag", "k").expect(t, 0, writtenMeta+"\n", "")
+	exec(t, "", "pages", "update", "6", "--append-file", file, "--if-unmodified-since", "2026-10-20T03:30:15.0-05:00").expect(t, 0, writtenMeta+"\n", "")
+	exec(t, "", "pages", "update", "6", "--file", file, "--if-unmodified-since", "2026-10-20T08:30:15.000Z").expect(t, 0, writtenMeta+"\n", "")
+	f.expectRequests(t,
+		"GET /api/pages/6", "PUT /api/pages/6",
+		"GET /api/pages/6", "PUT /api/pages/6",
+		"GET /api/pages/6", "PUT /api/pages/6",
+		"GET /api/pages/6", "PUT /api/pages/6")
+	f.expectBodies(t,
+		"", `{"name":"N"}`,
+		"", `{"tags":[{"name":"k","value":""}]}`,
+		"", `{"markdown":"old\n\nnew part\n"}`,
+		"", `{"markdown":"new part\n"}`)
+}
+
+// T7 S1, S2, S5: a different instant aborts every kind of change after the
+// GET with exit 5, no status, the current updated_at and updater, and no PUT.
+func TestPagesUpdateGuardConflict(t *testing.T) {
+	f := newFake(t, map[string]reply{"GET /api/pages/6": ok(guardedPage)})
+	file := tempFile(t, "new part\n")
+	cases := []struct {
+		name, given string
+		args        []string
+	}{
+		{"name", "2026-10-20T08:30:14Z", []string{"--name", "N"}},
+		{"tag", "2026-10-20T08:30:14.000000Z", []string{"--tag", "k"}},
+		{"file", "2026-10-20T08:30:16Z", []string{"--file", file}},
+		{"append-file", "2026-10-19T08:30:15Z", []string{"--append-file", file}},
+		{"fraction differs", "2026-10-20T08:30:15.000001Z", []string{"--name", "N"}},
+		{"offset differs", "2026-10-20T08:30:15+01:00", []string{"--append-file", file, "--tag", "k"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"pages", "update", "6", "--if-unmodified-since", tc.given}, tc.args...)
+			exec(t, "", args...).expect(t, 5, "",
+				errJSON("conflict", 0, "page 6 was modified at 2026-10-20T08:30:15.000000Z by Ana; expected "+tc.given))
+		})
+	}
+	want := make([]string, len(cases))
+	for i := range want {
+		want[i] = "GET /api/pages/6"
+	}
+	f.expectRequests(t, want...)
+}
+
+// T7 S1: without the updater's name (a bare id or null updated_by) the
+// conflict message names the user id, or "an unknown user".
+func TestPagesUpdateGuardConflictWithoutUpdaterName(t *testing.T) {
+	byID := strings.Replace(guardedPage, `{"id":3,"name":"Ana","slug":"ana"}`, `3`, 1)
+	byNull := strings.Replace(guardedPage, `{"id":3,"name":"Ana","slug":"ana"}`, `null`, 1)
+	if byID == guardedPage || byNull == guardedPage {
+		t.Fatal("fixtures were not built")
+	}
+	f := newFake(t, map[string]reply{"GET /api/pages/6": ok(byID), "GET /api/pages/7": ok(byNull)})
+	exec(t, "", "pages", "update", "6", "--name", "N", "--if-unmodified-since", "2026-10-20T08:30:14Z").expect(t, 5, "",
+		errJSON("conflict", 0, "page 6 was modified at 2026-10-20T08:30:15.000000Z by user 3; expected 2026-10-20T08:30:14Z"))
+	exec(t, "", "pages", "update", "7", "--name", "N", "--if-unmodified-since", "2026-10-20T08:30:14Z").expect(t, 5, "",
+		errJSON("conflict", 0, "page 7 was modified at 2026-10-20T08:30:15.000000Z by an unknown user; expected 2026-10-20T08:30:14Z"))
+	f.expectRequests(t, "GET /api/pages/6", "GET /api/pages/7")
+}
+
+// T7 S1: a page whose updated_at is missing or unparsable cannot be checked;
+// the update fails closed with no PUT.
+func TestPagesUpdateGuardUncheckablePage(t *testing.T) {
+	bad := strings.Replace(guardedPage, `"2026-10-20T08:30:15.000000Z"`, `"soon"`, 1)
+	if bad == guardedPage {
+		t.Fatal("fixture was not built")
+	}
+	f := newFake(t, map[string]reply{"GET /api/pages/6": ok(bad), "GET /api/pages/8": ok(emptyMD)})
+	exec(t, "", "pages", "update", "6", "--name", "N", "--if-unmodified-since", "2026-10-20T08:30:15Z").expect(t, 1, "",
+		errJSON("invalid_response", 0, `cannot check --if-unmodified-since: page 6 has an invalid updated_at \"soon\"; nothing was written`))
+	exec(t, "", "pages", "update", "8", "--name", "N", "--if-unmodified-since", "2026-10-20T08:30:15Z").expect(t, 1, "",
+		errJSON("invalid_response", 0, `cannot check --if-unmodified-since: page 8 has an invalid updated_at \"\"; nothing was written`))
+	f.expectRequests(t, "GET /api/pages/6", "GET /api/pages/8")
+}
+
+// T7 S1, S5: an unparsable value is a usage error and no request is made,
+// whatever the change.
+func TestPagesUpdateGuardUnparsable(t *testing.T) {
+	f := newFake(t, nil)
+	file := tempFile(t, "x")
+	for _, v := range []string{"", "yesterday", "2026-10-20", "2026-10-20 08:30:15Z", "2026-10-20T08:30:15", "1729413015"} {
+		for _, change := range [][]string{{"--name", "N"}, {"--append-file", file}} {
+			args := append([]string{"pages", "update", "6", "--if-unmodified-since", v}, change...)
+			exec(t, "", args...).expect(t, 2, "",
+				errJSON("usage", 0, `invalid --if-unmodified-since \"`+v+`\": must be an RFC 3339 timestamp such as the updated_at printed by \"pages get\"`))
+		}
+	}
+	f.expectRequests(t)
+}
+
+// T7 S1, S3, S4: the update help documents the optional, non-atomic guard,
+// the recommended pattern and exit 5.
+func TestHelpDocumentsConcurrencyGuard(t *testing.T) {
+	isolate(t)
+	r := exec(t, "", "pages", "update", "--help")
+	for _, want := range []string{
+		"--if-unmodified-since", "optional", "not atomic", "revisions",
+		"bsk pages get 5", "bsk pages update 5 --if-unmodified-since",
+		"5  conflict",
+	} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("pages update help missing %q:\n%s", want, r.stdout)
+		}
+	}
+	if strings.Contains(r.stdout, "--force") {
+		t.Errorf("pages update help mentions --force:\n%s", r.stdout)
+	}
+	r = exec(t, "", "pages", "get", "--help")
+	if !strings.Contains(r.stdout, "5  conflict") {
+		t.Errorf("shared exit-code help missing exit 5:\n%s", r.stdout)
+	}
+}

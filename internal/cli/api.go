@@ -28,6 +28,7 @@ Exit codes:
   2  usage (invalid arguments or flags; no request is made)
   3  auth: invalid token or missing permission (HTTP 401/403)
   4  not found (HTTP 404)
+  5  conflict: the page changed since --if-unmodified-since (pages update)
   6  validation (HTTP 422)`
 
 // newAPIClient builds a client from the effective configuration of profile.

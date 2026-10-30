@@ -18,6 +18,7 @@ const (
 	ExitUsage      = 2
 	ExitAuth       = 3
 	ExitNotFound   = 4
+	ExitConflict   = 5
 	ExitValidation = 6
 )
 
@@ -29,6 +30,7 @@ const (
 	CodeConfigInvalid = "config_invalid"
 	CodeAmbiguous     = "ambiguous"
 	CodeUnsafeWrite   = "unsafe_write"
+	CodeConflict      = "conflict"
 )
 
 // Error is a command failure with its JSON error code and process exit code.

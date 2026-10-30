@@ -1,10 +1,11 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JasserRomero/bookstack-cli/internal/client"
 	"github.com/spf13/cobra"
@@ -69,7 +70,20 @@ editor format so the editor never changes:
 Writing content first reads the page (GET /api/pages/<id>) to know its editor.
 
 --tag replaces the page's whole tag set with the given tags; without --tag the
-tags are not sent and stay unchanged.` + writeHelp
+tags are not sent and stay unchanged.
+
+--if-unmodified-since is an optional guard against overwriting someone else's
+edit, for any change. The value is an RFC 3339 timestamp, normally the
+updated_at printed by "pages get"; it is compared as an instant, so
+2026-10-20T08:30:15.000000Z equals 2026-10-20T08:30:15Z. The page is read
+first (one GET, the same read --append-file appends to); when its updated_at
+is a different instant nothing is written and the command fails with code
+conflict (exit 5), naming the current updated_at and who made the change.
+Recommended pattern: "pages get <id>", keep its updated_at, then
+"pages update <id> --if-unmodified-since <updated_at> ...".
+The check is not atomic: BookStack offers no optimistic locking, so a change
+made between the read and the write is not detected. Page revisions in
+BookStack remain the way to recover an overwritten edit.` + writeHelp
 
 func newPagesCreateCmd(d apiDeps) *cobra.Command {
 	var (
@@ -124,8 +138,8 @@ func newPagesCreateCmd(d apiDeps) *cobra.Command {
 
 func newPagesUpdateCmd(d apiDeps) *cobra.Command {
 	var (
-		name, file, appendFile string
-		tags                   tagsFlag
+		name, file, appendFile, since string
+		tags                          tagsFlag
 	)
 	cmd := &cobra.Command{
 		Use:   "update <id>",
@@ -133,7 +147,9 @@ func newPagesUpdateCmd(d apiDeps) *cobra.Command {
 		Long:  pagesUpdateLong + exitCodesHelp,
 		Example: `  bsk pages update 5 --file deploy.md
   bsk pages update 5 --name "Deploy (v2)" --tag env=prod --tag reviewed
-  printf '## Changelog\n\n- fixed\n' | bsk pages update 5 --append-file -`,
+  printf '## Changelog\n\n- fixed\n' | bsk pages update 5 --append-file -
+  bsk pages get 5    # note its updated_at, e.g. 2026-10-20T08:30:15.000000Z
+  bsk pages update 5 --if-unmodified-since 2026-10-20T08:30:15.000000Z --file deploy.md`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id, err := parseID(args[0])
@@ -144,6 +160,13 @@ func newPagesUpdateCmd(d apiDeps) *cobra.Command {
 			setName, setTags := flags.Changed("name"), flags.Changed("tag")
 			if !setName && !setTags && file == "" && appendFile == "" {
 				return usageErrorf("nothing to update: give at least one of --name, --file, --append-file, --tag")
+			}
+			guard := flags.Changed("if-unmodified-since")
+			var expected time.Time
+			if guard {
+				if expected, err = time.Parse(time.RFC3339Nano, since); err != nil {
+					return usageErrorf(`invalid --if-unmodified-since %q: must be an RFC 3339 timestamp such as the updated_at printed by "pages get"`, since)
+				}
 			}
 			var u client.PageUpdate
 			if setName {
@@ -176,9 +199,22 @@ func newPagesUpdateCmd(d apiDeps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if mdPath != "" {
-				if err := setContent(cmd.Context(), c, id, md, mdFlag == "--append-file", &u); err != nil {
+			// One read serves both the guard and the content, so the checked
+			// version is the one appended to.
+			if guard || mdPath != "" {
+				current, err := c.GetPage(cmd.Context(), id)
+				if err != nil {
 					return err
+				}
+				if guard {
+					if err := checkUnmodified(id, current, expected, since); err != nil {
+						return err
+					}
+				}
+				if mdPath != "" {
+					if err := setContent(id, current, md, mdFlag == "--append-file", &u); err != nil {
+						return err
+					}
 				}
 			}
 			p, err := c.UpdatePage(cmd.Context(), id, u)
@@ -192,6 +228,7 @@ func newPagesUpdateCmd(d apiDeps) *cobra.Command {
 	cmd.Flags().StringVar(&file, "file", "", `replace the content with this Markdown file, or "-" for stdin`)
 	cmd.Flags().StringVar(&appendFile, "append-file", "", `append this Markdown file, or "-" for stdin`)
 	cmd.Flags().Var(&tags, "tag", tagFlagUsage+"; replaces the page's tags")
+	cmd.Flags().StringVar(&since, "if-unmodified-since", "", "write only if the page's updated_at is still this RFC 3339 time (not atomic)")
 	return cmd
 }
 
@@ -202,13 +239,38 @@ func checkName(name string) error {
 	return nil
 }
 
-// setContent sets the content of u from the Markdown md in the current
-// editor format of page id, replacing the content or appending to it.
-func setContent(ctx context.Context, c *client.Client, id int, md string, appendMD bool, u *client.PageUpdate) error {
-	p, err := c.GetPage(ctx, id)
+// checkUnmodified returns a conflict error when page p, read just before the
+// write, was updated at an instant other than expected (given as raw).
+func checkUnmodified(id int, p *client.Page, expected time.Time, raw string) error {
+	current, err := time.Parse(time.RFC3339Nano, p.UpdatedAt)
 	if err != nil {
-		return err
+		return &Error{
+			Code:    client.CodeInvalidResponse,
+			Message: fmt.Sprintf("cannot check --if-unmodified-since: page %d has an invalid updated_at %q; nothing was written", id, p.UpdatedAt),
+			Exit:    ExitError,
+		}
 	}
+	if current.Equal(expected) {
+		return nil
+	}
+	by := "an unknown user"
+	switch {
+	case p.UpdatedBy.Name != "":
+		by = p.UpdatedBy.Name
+	case p.UpdatedBy.ID != 0:
+		by = "user " + strconv.Itoa(p.UpdatedBy.ID)
+	}
+	return &Error{
+		Code:    CodeConflict,
+		Message: fmt.Sprintf("page %d was modified at %s by %s; expected %s", id, p.UpdatedAt, by, raw),
+		Exit:    ExitConflict,
+	}
+}
+
+// setContent sets the content of u from the Markdown md in the current
+// editor format of page p, read just before, replacing the content or
+// appending to it.
+func setContent(id int, p *client.Page, md string, appendMD bool, u *client.PageUpdate) error {
 	if p.Editor == "markdown" {
 		if appendMD {
 			if existing := strings.TrimRight(p.Markdown, "\r\n"); existing != "" {
