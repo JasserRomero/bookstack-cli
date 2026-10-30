@@ -1,5 +1,3 @@
-# Changelog
-
 Registro de los cambios del proyecto {{.proyecto}}, del más reciente al más antiguo.
 
 ## [Sin publicar]

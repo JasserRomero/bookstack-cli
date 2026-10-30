@@ -1,5 +1,3 @@
-# Ficha del documento
-
 | Campo | Valor |
 |---|---|
 | Proyecto | {{.proyecto}} |

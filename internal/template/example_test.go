@@ -48,6 +48,17 @@ func TestExampleProyecto(t *testing.T) {
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("structure = %q\nwant        %q", names, want)
 	}
+	// BookStack shows the page name as its title, so the content must not
+	// repeat it as a leading heading.
+	all := append([]RenderedPage{}, r.Pages...)
+	for _, ch := range r.Chapters {
+		all = append(all, ch.Pages...)
+	}
+	for _, p := range all {
+		if strings.HasPrefix(p.Markdown, "# "+p.Name) {
+			t.Errorf("page %q repeats its name as a leading heading", p.Name)
+		}
+	}
 	if !strings.Contains(r.Pages[0].Markdown, "IRIS") || strings.Contains(r.Pages[0].Markdown, "{{") {
 		t.Errorf("ficha not rendered:\n%s", r.Pages[0].Markdown)
 	}

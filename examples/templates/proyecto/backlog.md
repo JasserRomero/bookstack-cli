@@ -1,5 +1,3 @@
-# Lista de mejoras pendientes y backlog
-
 Mejoras pendientes del proyecto {{.proyecto}}, ordenadas por prioridad.
 
 | Prioridad | Mejora | Motivo | Estado | Responsable |

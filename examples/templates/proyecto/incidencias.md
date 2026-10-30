@@ -1,5 +1,3 @@
-# Registro de incidencias y soluciones
-
 Incidencias del proyecto {{.proyecto}} y cómo se resolvieron.
 
 | Fecha | Incidencia | Impacto | Causa | Solución | Responsable |
