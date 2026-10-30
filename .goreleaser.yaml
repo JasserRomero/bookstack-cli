@@ -35,3 +35,7 @@ release:
   github:
     owner: JasserRomero
     name: bookstack-cli
+  # Attach the installers so a release's install scripts match its version.
+  extra_files:
+    - glob: ./install.sh
+    - glob: ./install.ps1
