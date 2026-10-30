@@ -83,6 +83,14 @@ python3 -I -m http.server --bind 127.0.0.1 --directory "$srv" "$port" >"$work/ht
 server_pid=$!
 base_url="http://127.0.0.1:$port/dl"
 api_url="http://127.0.0.1:$port/api"
+# The latest release lists its assets with download URLs, as the GitHub API
+# does, so the token path can be exercised against this server.
+python3 -I - "$good" "$base_url/v9.9.9" >"$srv/api/repos/$release_repo/releases/latest" <<'PY'
+import json, os, sys
+names = sorted(os.listdir(sys.argv[1]))
+assets = [{"name": n, "url": sys.argv[2] + "/" + n} for n in names]
+print(json.dumps({"tag_name": "v9.9.9", "name": "v9.9.9", "assets": assets}))
+PY
 for _ in $(seq 50); do
 	curl -fsS -o /dev/null "$base_url/v9.9.9/checksums.txt" 2>/dev/null && break
 	sleep 0.1

@@ -22,7 +22,10 @@ $script:n = 0
 # Invoke-Installer runs install.ps1 in a child pwsh with the fake-server
 # overrides plus $Vars, a fresh TMPDIR and HOME; returns Out, Rc, Tmp, PathFile.
 # With -ViaIex the script text is piped to Invoke-Expression, as `irm ... | iex` does.
-function Invoke-Installer([hashtable]$Vars, [string[]]$Arguments, [switch]$ViaIex) {
+# With -NativeErrorsTerminate the child sets $PSNativeCommandUseErrorActionPreference,
+# so a failing native command is a terminating error under 'Stop', as in
+# Windows PowerShell 5.1 when a native command's stderr is redirected.
+function Invoke-Installer([hashtable]$Vars, [string[]]$Arguments, [switch]$ViaIex, [switch]$NativeErrorsTerminate) {
     $script:n++
     $tmp = Join-Path $work "tmp$script:n"
     New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -45,7 +48,9 @@ function Invoke-Installer([hashtable]$Vars, [string[]]$Arguments, [switch]$ViaIe
     }
     try {
         $ErrorActionPreference = 'Continue'
-        if ($ViaIex) {
+        if ($NativeErrorsTerminate) {
+            $out = & pwsh -NoProfile -Command "`$PSNativeCommandUseErrorActionPreference = `$true; & '$installer'" 2>&1 | Out-String
+        } elseif ($ViaIex) {
             $out = & pwsh -NoProfile -Command "Get-Content -Raw '$installer' | Invoke-Expression" 2>&1 | Out-String
         } else {
             $out = & pwsh -NoProfile -File $installer @Arguments 2>&1 | Out-String
@@ -114,6 +119,18 @@ Check 'ps1: no PATH change reported when present' (-not ($r.Out -like '*to your 
 
 $r = Invoke-Installer @{ BSK_VERSION = 'v9.9.9'; BSK_INSTALL_ARCH = 'ARM64' } @('-InstallDir', (Join-Path $work 'i2'))
 Check 'ps1: ARM64 maps to windows_arm64' (($r.Rc -eq 0) -and ($r.Out -like '*bsk_9.9.9_windows_arm64.zip*'))
+
+# R4-001: gh installed but not logged in must fall back to the token, even
+# where native command failures terminate the script (Windows PowerShell 5.1).
+$fakeBin = Join-Path $work 'fakebin'
+New-Item -ItemType Directory -Path $fakeBin | Out-Null
+$fakeGh = Join-Path $fakeBin 'gh'
+Set-Content -LiteralPath $fakeGh -Value "#!/bin/sh`necho 'no oauth token found' >&2`nexit 1`n" -NoNewline
+& chmod +x $fakeGh
+$dir = Join-Path $work 'nogh'
+$r = Invoke-Installer @{ BSK_INSTALL_BASE_URL = $null; GITHUB_TOKEN = 'fake-token'; BSK_INSTALL_DIR = $dir; PATH = "$fakeBin$([IO.Path]::PathSeparator)$env:PATH" } @() -NativeErrorsTerminate
+Check 'ps1: gh without login falls back to the token' (($r.Rc -eq 0) -and ($r.Out -like '*with the GitHub API...*') -and (Test-Path -LiteralPath (Join-Path $dir 'bsk.exe')))
+if ($r.Rc -ne 0) { Write-Output $r.Out }
 
 $dir = Join-Path $work 'iex'
 $r = Invoke-Installer @{ BSK_VERSION = '9.9.9'; BSK_INSTALL_DIR = $dir } @() -ViaIex

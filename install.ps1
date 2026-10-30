@@ -96,8 +96,20 @@ function Install-Bsk {
         if (-not $token) { $token = $env:GH_TOKEN }
         $useGh = $false
         if (-not $BaseUrl -and (Get-Command gh -ErrorAction SilentlyContinue)) {
-            & gh auth token *> $null
-            $useGh = ($LASTEXITCODE -eq 0)
+            # A logged-out gh must fall back to the token or anonymous path.
+            # Windows PowerShell 5.1 turns redirected native stderr into errors
+            # that 'Stop' would make fatal, so probe with 'Continue' and decide
+            # by the exit code alone.
+            $eap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                & gh auth token *> $null
+                $useGh = ($LASTEXITCODE -eq 0)
+            } catch {
+                $useGh = $false
+            } finally {
+                $ErrorActionPreference = $eap
+            }
         }
 
         if ($useGh) {
