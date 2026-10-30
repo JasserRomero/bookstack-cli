@@ -284,17 +284,23 @@ func TestSecretNeverPrinted(t *testing.T) {
 		return bskEnv(t, kept, stdin, args...)
 	}
 	run(secret+"\n", "auth", "--profile", "sandbox", "--url", baseURL, "--token-id", tokenID).ok(t, nil)
-	for _, args := range [][]string{
-		{"config", "show"},
-		{"config", "profiles"},
-		{"--profile", "sandbox", "config", "show"},
-		{"--profile", "sandbox", "test"},
-		{"--profile", "sandbox", "pages", "get", "999999999"},
-		{"--profile", "sandbox", "--help"},
+	for _, c := range []struct {
+		args []string
+		exit int
+	}{
+		{[]string{"config", "show"}, 0},
+		{[]string{"config", "profiles"}, 0},
+		{[]string{"--profile", "sandbox", "config", "show"}, 0},
+		{[]string{"--profile", "sandbox", "test"}, 0},
+		{[]string{"--profile", "sandbox", "pages", "get", "999999999"}, 4},
+		{[]string{"--profile", "sandbox", "--help"}, 0},
 	} {
-		r := run("", args...)
+		r := run("", c.args...)
+		if r.code != c.exit {
+			t.Errorf("bsk %v: exit %d, want %d (stderr %q)", c.args, r.code, c.exit, r.stderr)
+		}
 		if r.stdout+r.stderr == "" {
-			t.Errorf("bsk %v printed nothing", args)
+			t.Errorf("bsk %v printed nothing", c.args)
 		}
 	}
 }
