@@ -2,3 +2,4 @@
 /dist/
 /test/e2e/.state.local
 /test/e2e/.env.local
+/odd/
