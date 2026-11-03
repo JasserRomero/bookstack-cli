@@ -4,7 +4,7 @@
 
 **A safe, JSON-first BookStack client for coding agents.**
 
-<a href="https://github.com/JasserRomero/bookstack-cli/releases"><img src="https://img.shields.io/badge/release-v0.1.1-E0115F?style=for-the-badge&labelColor=1A1A1A" alt="Release v0.1.1"></a>
+<a href="https://github.com/JasserRomero/bookstack-cli/releases"><img src="https://img.shields.io/github/v/release/JasserRomero/bookstack-cli?style=for-the-badge&color=E0115F&labelColor=1A1A1A" alt="Latest release"></a>
 <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.27-00ADD8?style=for-the-badge&logo=go&logoColor=white&labelColor=1A1A1A" alt="Go 1.27"></a>
 <a href="https://www.bookstackapp.com/"><img src="https://img.shields.io/badge/BookStack-REST%20API-0288D1?style=for-the-badge&labelColor=1A1A1A" alt="BookStack REST API"></a>
 
@@ -38,33 +38,19 @@ Binaries are published for Linux, macOS and Windows (amd64/arm64) on the [GitHub
 
 ### Installer (recommended)
 
-The repository is currently private, so the installer is fetched with the [GitHub CLI](https://cli.github.com/) (`gh auth login` first):
-
-```sh
-# Linux / macOS
-gh api repos/JasserRomero/bookstack-cli/contents/install.sh -H "Accept: application/vnd.github.raw" | sh
-```
-
-```powershell
-# Windows (PowerShell 5.1+ or 7)
-gh api repos/JasserRomero/bookstack-cli/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String | iex
-```
-
-Once the repository is public, no GitHub CLI is needed:
-
 ```sh
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.sh | sh
 ```
 
 ```powershell
-# Windows
+# Windows (PowerShell 5.1+ or 7)
 irm https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.ps1 | iex
 ```
 
 What the installers do:
 
-- **Download**, in this order: with `gh` if it is installed and authenticated; else through the GitHub API with `GITHUB_TOKEN` or `GH_TOKEN` if set; else anonymously over HTTPS (works only while the repository is public). On a private repository without `gh` or a token they fail and explain both options. The token is never printed.
+- **Download** the release archive for your platform: with `gh` if it is installed and authenticated, else through the GitHub API with `GITHUB_TOKEN` or `GH_TOKEN` if set, else anonymously over HTTPS. The token is never printed.
 - **Verify** the archive against the release's `checksums.txt` (SHA-256) and refuse to install on a mismatch or a missing entry.
 - **Install** `bsk` without sudo, replacing an existing binary atomically, then print `bsk --version`:
 
@@ -83,15 +69,16 @@ Environment variables apply to piped one-liners too, for example `... | BSK_VERS
 **Manual download.** Download the archive for your platform and `checksums.txt` from a release, verify, extract, and put `bsk` (`bsk.exe` on Windows) on your `PATH`. Archives are named `bsk_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows):
 
 ```sh
-gh release download v0.1.1 -R JasserRomero/bookstack-cli -p 'bsk_0.1.1_linux_amd64.tar.gz' -p checksums.txt
+base=https://github.com/JasserRomero/bookstack-cli/releases/download/v0.1.1
+curl -fsSLO "$base/bsk_0.1.1_linux_amd64.tar.gz" -O "$base/checksums.txt"
 grep ' bsk_0.1.1_linux_amd64.tar.gz$' checksums.txt | sha256sum -c -    # macOS: shasum -a 256 -c -
 tar -xzf bsk_0.1.1_linux_amd64.tar.gz bsk
 ```
 
-**With Go** (1.27 or newer). While the repository is private, set `GOPRIVATE` so Go fetches it directly with your Git credentials instead of the public module proxy:
+**With Go** (1.27 or newer):
 
 ```sh
-GOPRIVATE=github.com/JasserRomero go install github.com/JasserRomero/bookstack-cli/cmd/bsk@latest
+go install github.com/JasserRomero/bookstack-cli/cmd/bsk@latest
 ```
 
 A `go install` build reports its version as `dev`.
@@ -110,13 +97,13 @@ Check any of them with `bsk --version`.
 | Manual / `make build` | replace the binary | delete the binary |
 
 ```sh
-# Linux / macOS (public: curl -fsSL <install.sh URL> | sh -s -- --uninstall)
-gh api repos/JasserRomero/bookstack-cli/contents/install.sh -H "Accept: application/vnd.github.raw" | sh -s -- --uninstall
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.sh | sh -s -- --uninstall
 ```
 
 ```powershell
-# Windows (public: replace the gh api command with irm <install.ps1 URL>)
-& ([scriptblock]::Create((gh api repos/JasserRomero/bookstack-cli/contents/install.ps1 -H "Accept: application/vnd.github.raw" | Out-String))) -Uninstall
+# Windows
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/JasserRomero/bookstack-cli/main/install.ps1))) -Uninstall
 ```
 
 Uninstalling removes only the binary. The configuration directory (default `~/.config/bookstack-cli/`), which holds the credentials, is kept; the installers print where it is so you can delete it yourself.
@@ -317,8 +304,7 @@ Installer tests live under `test/install/`.
 ### Release
 
 1. Tag the commit `vX.Y.Z` and push the tag (`git tag vX.Y.Z && git push origin vX.Y.Z`).
-2. The Release workflow runs `make lint` and `make test`, then GoReleaser builds the six archives (Linux, macOS, Windows × amd64, arm64) and `checksums.txt`, and attaches `install.sh` and `install.ps1` to the GitHub release.
-3. Update the release badge at the top of this README to the new version (it is static while the repository is private).
+2. The Release workflow runs `make lint` and `make test`, then GoReleaser builds the six archives (Linux, macOS, Windows × amd64, arm64) and `checksums.txt`, and attaches `install.sh` and `install.ps1` to the GitHub release. The release badge at the top of this README updates by itself.
 
 ## Known limits
 
